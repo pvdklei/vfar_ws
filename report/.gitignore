@@ -1,0 +1,39 @@
+# LaTeX build artifacts
+build/
+*.pdf
+
+# LaTeX auxiliary files
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.nav
+*.snm
+*.vrb
+
+# LaTeX temporary files
+*.dvi
+*.ps
+*.xdv
+
+# Bibliography files
+*.bak
+*.sav
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Editor-specific files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/

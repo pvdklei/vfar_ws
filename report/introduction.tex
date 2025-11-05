@@ -1,0 +1,74 @@
+% introduction.tex - Introduction section
+\section{Introduction}
+\label{sec:introduction}
+
+% PLACEHOLDER: Opening paragraph (2-3 sentences)
+% - Introduce the general context: autonomous robots and their need for visual feedback
+% - Mention the importance of line following in robotics applications
+% - Example: "Autonomous mobile robots rely heavily on visual feedback to navigate their environment.
+%   Line following is a fundamental task in robotics, with applications ranging from warehouse automation
+%   to autonomous vehicles maintaining lane positions."
+
+\subsection{Motivation and Background}
+\label{subsec:motivation}
+
+% PLACEHOLDER: Motivation paragraph (3-4 sentences)
+% - Explain why line detection and following is important
+% - Discuss real-world applications (autonomous vehicles, warehouse robots, etc.)
+% - Mention the specific context of this lab (UGV Rover following ceiling lines)
+% - Example: "In industrial environments, autonomous guided vehicles (AGVs) use line following to
+%   transport materials efficiently. This assignment explores line following in a unique scenario:
+%   following ceiling-mounted light lines rather than ground markers."
+
+\subsection{Assignment Objectives}
+\label{subsec:objectives}
+
+% PLACEHOLDER: List the main objectives of the assignment
+% This should be a clear enumeration of what the lab aims to achieve:
+The main objectives of this assignment are:
+
+\begin{enumerate}
+    \item \textbf{Line Detection (Session 1):}
+    % PLACEHOLDER: Describe the line detection objectives
+    % - Design and implement a line detection pipeline
+    % - Evaluate Canny edge detector performance
+    % - Test on provided rosbag data
+    % - Explore and compare alternative line detection algorithms
+
+    \item \textbf{Line Following (Session 2):}
+    % PLACEHOLDER: Describe the line following objectives
+    % - Implement a complete line following system
+    % - Develop tracking algorithm to follow specific ceiling line
+    % - Evaluate impact of camera calibration
+    % - Address control challenges (e.g., oscillation, stability)
+
+    \item \textbf{System Integration:}
+    % PLACEHOLDER: Describe integration objectives
+    % - Integrate computer vision algorithms with ROS2
+    % - Implement real-time control based on visual feedback
+    % - Test and validate on physical UGV Rover platform
+\end{enumerate}
+
+\subsection{Technical Approach}
+\label{subsec:approach}
+
+% PLACEHOLDER: Brief overview of technical approach (3-5 sentences)
+% - Mention the UGV Rover platform and its capabilities
+% - Describe the ROS2 framework used
+% - Outline the general pipeline: image capture → processing → line detection → control → actuation
+% - Mention key tools: OpenCV for image processing, Python for implementation
+% - Example: "This assignment uses a UGV Rover equipped with a pan-tilt camera to capture images of
+%   ceiling lines. The Robot Operating System 2 (ROS2) framework provides the infrastructure for
+%   real-time image processing and robot control."
+
+\subsection{Report Organization}
+\label{subsec:organization}
+
+% PLACEHOLDER: Outline the structure of the report
+% This should match the actual structure of your document
+The remainder of this report is organized as follows:
+\begin{itemize}
+    \item Section \ref{sec:session1} describes the line detection pipeline design and implementation, including comparison of different edge detection algorithms.
+    \item Section \ref{sec:session2} presents the line following system, including tracking algorithms, camera calibration effects, and control improvements.
+    \item Section \ref{sec:conclusion} summarizes the key findings, discusses limitations, and suggests future improvements.
+\end{itemize}

@@ -1,0 +1,115 @@
+% main.tex - Main document file for Lab 1 Assignment Report
+\documentclass[11pt,a4paper]{article}
+
+% ==================== PACKAGES ====================
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{enumitem}
+
+% ==================== PAGE LAYOUT ====================
+\geometry{
+    a4paper,
+    left=25mm,
+    right=25mm,
+    top=30mm,
+    bottom=30mm
+}
+
+% ==================== HYPERREF SETUP ====================
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    citecolor=blue,
+    pdftitle={Lab 1: Line Detection and Following},
+    pdfauthor={Student IDs},
+}
+
+% ==================== CODE LISTING SETUP ====================
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    commentstyle=\color{green!60!black},
+    keywordstyle=\color{blue},
+    stringstyle=\color{red}
+}
+
+% ==================== TITLE INFORMATION ====================
+\title{
+    \textbf{Visual Feedback for Autonomous Robots}\\
+    \large Lab 1: Line Detection and Following by UGV Rover
+}
+\author{
+    Student Name 1 (ID1) \and
+    Student Name 2 (ID2) \and
+    Student Name 3 (ID3) \and
+    Student Name 4 (ID4)
+}
+\date{\today}
+
+% ==================== DOCUMENT BEGINS ====================
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+% PLACEHOLDER: Write a concise abstract (150-200 words) that summarizes:
+% - The objective of the assignment (line detection and following with UGV Rover)
+% - Main approaches used (Canny edge detection, alternative methods, control algorithms)
+% - Key findings (which algorithms worked best, challenges encountered)
+% - Main conclusion (success of line following implementation)
+This abstract should briefly describe the entire lab assignment, highlighting the main objectives, methodologies, and outcomes of both Session 1 (line detection) and Session 2 (line following).
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ==================== MAIN SECTIONS ====================
+\input{introduction}
+
+\input{session1}
+
+\input{session2}
+
+\input{conclusion}
+
+% ==================== REFERENCES ====================
+\bibliographystyle{plain}
+\bibliography{references}
+% Alternatively, you can manually add references:
+\begin{thebibliography}{9}
+\bibitem{dudek2024}
+G. Dudek and M. Jenkin,
+\textit{Computational Principles of Mobile Robotics}, 2nd ed.
+Cambridge University Press, 2024.
+
+\bibitem{opencv}
+OpenCV Documentation,
+\textit{Edge Detection using OpenCV},
+\url{https://docs.opencv.org/4.x/da/d22/tutorial_py_canny.html},
+Accessed: \today.
+
+% PLACEHOLDER: Add more references as needed for:
+% - ROS2 documentation
+% - Line following GitHub repositories referenced
+% - Any additional academic papers or resources used
+\end{thebibliography}
+
+\end{document}

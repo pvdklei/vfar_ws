@@ -1,0 +1,435 @@
+% session2.tex - Session 2: Line Following
+\section{Session 2: Line Following by UGV Rover}
+\label{sec:session2}
+
+% PLACEHOLDER: Brief introduction to Session 2 (2-3 sentences)
+% - Explain that this section covers the line following implementation
+% - Mention the goal: autonomous following of ceiling lines
+% - Preview the subsections: pipeline design, tracking algorithm, calibration effects, control improvements
+
+\subsection{Line Following Pipeline Design}
+\label{subsec:following_pipeline}
+
+% PLACEHOLDER: Describe your line following pipeline (10 points)
+% This subsection should include:
+% 1. Complete pipeline from image capture to robot control
+% 2. Justification for each step
+% 3. ROS2 architecture and node structure
+
+\subsubsection{System Architecture}
+
+% PLACEHOLDER: Describe the overall system architecture (4-5 sentences)
+% - ROS2 nodes created (e.g., line_detector node, controller node)
+% - Topic structure (image topics, velocity command topics)
+% - How components communicate
+% - Real-time processing considerations
+
+\begin{figure}[H]
+    \centering
+    % PLACEHOLDER: Insert system architecture diagram
+    \fbox{\parbox{0.8\textwidth}{\centering
+        \textbf{[FIGURE: ROS2 System Architecture]}\\[1em]
+        Insert a diagram showing:\\
+        Camera Node $\rightarrow$ Line Detection Node $\rightarrow$ Control Node $\rightarrow$ Motor Commands
+    }}
+    \caption{ROS2 system architecture for line following. PLACEHOLDER: This figure should show the complete ROS2 node structure, topics, and data flow.}
+    \label{fig:system_architecture}
+\end{figure}
+
+\subsubsection{Pipeline Steps}
+
+% PLACEHOLDER: Describe each step in the line following pipeline
+
+\paragraph{Step 1: Image Acquisition and Processing}
+% PLACEHOLDER: Describe how images are continuously captured and processed
+% - ROS2 camera subscriber implementation
+% - Processing rate and frame skipping if needed
+% - Integration with line detection algorithm from Session 1
+
+\paragraph{Step 2: Line Feature Extraction}
+% PLACEHOLDER: Describe how line features are extracted
+% - Line position (x-coordinate in image)
+% - Line orientation (angle)
+% - Line confidence/quality metric
+% - Why: these features guide the control decision
+
+\paragraph{Step 3: Control Command Generation}
+% PLACEHOLDER: Describe how control commands are computed
+% - Mapping from line position to steering command
+% - Speed control strategy
+% - Error computation (deviation from desired position)
+% - Why: translate visual feedback into motor commands
+
+\paragraph{Step 4: Robot Actuation}
+% PLACEHOLDER: Describe robot control
+% - ROS2 velocity command publisher
+% - Command format (linear and angular velocities)
+% - Safety limits and emergency stop
+
+\subsubsection{Implementation Details}
+
+\begin{lstlisting}[language=Python, caption={Line following ROS2 node (simplified). PLACEHOLDER: Replace with your actual implementation.}]
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from geometry_msgs.msg import Twist
+
+class LineFollowerNode(Node):
+    def __init__(self):
+        super().__init__('line_follower')
+        # PLACEHOLDER: Insert your initialization code
+
+        # Subscribe to camera images
+        self.image_sub = self.create_subscription(
+            Image, '/camera/image_raw',
+            self.image_callback, 10)
+
+        # Publish velocity commands
+        self.cmd_pub = self.create_publisher(
+            Twist, '/cmd_vel', 10)
+
+    def image_callback(self, msg):
+        # PLACEHOLDER: Insert your image processing code
+        # - Detect lines
+        # - Compute control command
+        # - Publish velocity command
+        pass
+
+# PLACEHOLDER: Add more code as needed
+\end{lstlisting}
+
+\subsection{Tracking a Specific Ceiling Line}
+\label{subsec:line_tracking}
+
+% PLACEHOLDER: Describe tracking algorithm (10 points)
+% This subsection should include:
+% 1. Problem description (multiple lines detected)
+% 2. Solution approach
+% 3. Comparison with initial version
+
+\subsubsection{Problem Statement}
+
+% PLACEHOLDER: Explain the multiple line problem (3-4 sentences)
+% - Multiple ceiling lines detected simultaneously
+% - Also ground lines, window edges, etc.
+% - Robot gets confused and switches between lines
+% - Need to consistently follow ONE specific line
+
+\begin{figure}[H]
+    \centering
+    % PLACEHOLDER: Insert image showing multiple detected lines
+    \fbox{\parbox{0.6\textwidth}{\centering [Image with Multiple Detected Lines]}}
+    \caption{Problem illustration: Multiple lines detected including ceiling lines, ground lines, and window edges. PLACEHOLDER: Show an actual image with all detected lines marked.}
+    \label{fig:multiple_lines}
+\end{figure}
+
+\subsubsection{Tracking Algorithm Design}
+
+% PLACEHOLDER: Describe your tracking solution (5-6 sentences)
+% Possible approaches:
+% - Temporal consistency (track line closest to previous frame's line)
+% - Position filtering (select line in expected region)
+% - Brightness-based selection (brightest line = ceiling line)
+% - Kalman filter or particle filter for tracking
+% - Combination of multiple criteria
+
+\begin{algorithm}[H]
+\caption{Line Tracking Algorithm. PLACEHOLDER: Replace with your actual algorithm}
+\label{alg:tracking}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Set of detected lines $L = \{l_1, l_2, ..., l_n\}$, previous target line $l_{prev}$
+\State \textbf{Output:} Current target line $l_{target}$
+\State
+\State \texttt{// PLACEHOLDER: Insert your tracking algorithm}
+\If{first frame}
+    \State $l_{target} \gets \text{SelectInitialLine}(L)$ \Comment{e.g., brightest, most central}
+\Else
+    \State $distances \gets \text{ComputeDistances}(L, l_{prev})$
+    \State $l_{target} \gets \arg\min_{l \in L} distances[l]$ \Comment{closest to previous}
+\EndIf
+\State
+\State \texttt{// Additional filtering based on brightness, position, etc.}
+\State \Return $l_{target}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Implementation Results}
+
+% PLACEHOLDER: Show results of tracking algorithm
+% - Before and after comparison
+% - Demonstrate consistent tracking of single line
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.45\textwidth}
+        \centering
+        \fbox{\parbox{0.9\textwidth}{\centering [Without Tracking]}}
+        \caption{Without tracking: robot switches between lines}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.45\textwidth}
+        \centering
+        \fbox{\parbox{0.9\textwidth}{\centering [With Tracking]}}
+        \caption{With tracking: consistent following}
+    \end{subfigure}
+    \caption{Comparison of line following behavior. PLACEHOLDER: Show actual trajectory or sequence of frames demonstrating improved tracking.}
+    \label{fig:tracking_comparison}
+\end{figure}
+
+\subsubsection{Analysis}
+
+% PLACEHOLDER: Analyze why tracking works better (4-5 sentences)
+% - Quantitative improvement if possible (success rate, trajectory smoothness)
+% - Qualitative improvements observed
+% - Remaining challenges
+% - Parameter tuning discussion
+
+\subsection{Impact of Camera Calibration}
+\label{subsec:calibration}
+
+% PLACEHOLDER: Discuss camera calibration effects (10 points)
+% This subsection should include:
+% 1. Comparison between raw and rectified images
+% 2. Impact on line detection and following performance
+% 3. Consideration of whether additional calibration is needed
+
+\subsubsection{Camera Calibration Background}
+
+% PLACEHOLDER: Brief explanation of camera calibration (3-4 sentences)
+% - What is camera calibration (correcting lens distortion)
+% - Why it matters (straight lines should appear straight)
+% - Calibration parameters used
+
+\subsubsection{Experimental Comparison}
+
+% PLACEHOLDER: Describe experiments comparing raw vs rectified images
+% - How experiments were conducted (same trajectory with both image types)
+% - Metrics used for comparison
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.45\textwidth}
+        \centering
+        \fbox{\parbox{0.9\textwidth}{\centering [Raw Image]}}
+        \caption{Raw camera image}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.45\textwidth}
+        \centering
+        \fbox{\parbox{0.9\textwidth}{\centering [Rectified Image]}}
+        \caption{Rectified image}
+    \end{subfigure}
+    \caption{Comparison of raw and rectified images. PLACEHOLDER: Show actual images highlighting distortion correction, especially at image edges.}
+    \label{fig:calibration_images}
+\end{figure}
+
+\subsubsection{Performance Analysis}
+
+% PLACEHOLDER: Analyze the impact on performance (5-6 sentences)
+% - Did rectification improve line detection accuracy?
+% - Impact on line following stability
+% - Are there remaining distortions?
+% - Is the current calibration sufficient or is additional calibration needed?
+% - Specific scenarios where calibration matters most (e.g., lines near image edges)
+
+\begin{table}[H]
+\centering
+\caption{Performance comparison: raw vs. rectified images. PLACEHOLDER: Replace with actual measurements.}
+\label{tab:calibration}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Metric} & \textbf{Raw Images} & \textbf{Rectified Images} \\ \midrule
+Line detection accuracy (\%) & XX & XX \\
+Tracking stability (rating 1-10) & X & X \\
+Control smoothness (std dev of angular velocity, rad/s) & X.XX & X.XX \\
+False positive rate (\%) & XX & XX \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Control Improvement and Oscillation Reduction}
+\label{subsec:control_improvement}
+
+% PLACEHOLDER: Describe control improvements (10 points)
+% This subsection addresses the "open question"
+% Should include:
+% 1. Problem identification (oscillation, swinging behavior)
+% 2. Solution approach (e.g., PID controller)
+% 3. Results showing improvement
+
+\subsubsection{Problem: Oscillatory Behavior}
+
+% PLACEHOLDER: Describe the oscillation problem (4-5 sentences)
+% - Robot swings left and right while following line
+% - Causes of oscillation (pure proportional control, delays, etc.)
+% - Why this is problematic (inefficient, potential instability)
+% - Need for more sophisticated control
+
+\begin{figure}[H]
+    \centering
+    % PLACEHOLDER: Insert diagram or plot showing oscillatory trajectory
+    \fbox{\parbox{0.7\textwidth}{\centering [Oscillatory Trajectory Plot]}}
+    \caption{Oscillatory behavior without control improvement. PLACEHOLDER: Show actual trajectory or time-series plot of lateral deviation.}
+    \label{fig:oscillation}
+\end{figure}
+
+\subsubsection{Control Algorithm Design}
+
+% PLACEHOLDER: Describe your control solution (5-7 sentences)
+% Common approaches:
+% - PID controller (Proportional-Integral-Derivative)
+% - Damped proportional control
+% - Model predictive control
+% - Fuzzy logic controller
+% Explain the choice and design rationale
+
+\paragraph{PID Controller Design}
+% PLACEHOLDER: If using PID, describe each component
+% - Proportional term: responds to current error
+% - Integral term: eliminates steady-state error
+% - Derivative term: reduces oscillation and overshoot
+% - Parameter tuning process
+
+The control law is given by:
+\begin{equation}
+    u(t) = K_p \cdot e(t) + K_i \cdot \int_0^t e(\tau) d\tau + K_d \cdot \frac{de(t)}{dt}
+\end{equation}
+
+where:
+\begin{itemize}
+    \item $u(t)$ is the control output (angular velocity command)
+    \item $e(t)$ is the error (deviation of line from image center)
+    \item $K_p, K_i, K_d$ are the PID gains
+\end{itemize}
+
+% PLACEHOLDER: Describe your specific parameter values and tuning process
+The PID parameters were tuned as follows:
+\begin{itemize}
+    \item $K_p = $ \texttt{[PLACEHOLDER: your value]} (chosen because...)
+    \item $K_i = $ \texttt{[PLACEHOLDER: your value]} (chosen because...)
+    \item $K_d = $ \texttt{[PLACEHOLDER: your value]} (chosen because...)
+\end{itemize}
+
+\subsubsection{Implementation}
+
+\begin{lstlisting}[language=Python, caption={PID controller implementation. PLACEHOLDER: Replace with your actual code.}]
+class PIDController:
+    def __init__(self, Kp, Ki, Kd):
+        self.Kp = Kp
+        self.Ki = Ki
+        self.Kd = Kd
+        self.prev_error = 0
+        self.integral = 0
+
+    def compute(self, error, dt):
+        # PLACEHOLDER: Insert your PID implementation
+        self.integral += error * dt
+        derivative = (error - self.prev_error) / dt
+        output = self.Kp * error + self.Ki * self.integral + self.Kd * derivative
+        self.prev_error = error
+        return output
+\end{lstlisting}
+
+\subsubsection{Results and Comparison}
+
+% PLACEHOLDER: Show results comparing before and after control improvement
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.45\textwidth}
+        \centering
+        \fbox{\parbox{0.9\textwidth}{\centering [Trajectory Before]}}
+        \caption{Before: simple proportional control}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.45\textwidth}
+        \centering
+        \fbox{\parbox{0.9\textwidth}{\centering [Trajectory After]}}
+        \caption{After: PID control}
+    \end{subfigure}
+    \caption{Trajectory comparison. PLACEHOLDER: Show actual trajectories or error plots demonstrating reduced oscillation.}
+    \label{fig:control_comparison}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Control performance comparison. PLACEHOLDER: Replace with actual measurements.}
+\label{tab:control}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Metric} & \textbf{Before} & \textbf{After} \\ \midrule
+Oscillation amplitude (pixels) & XX & XX \\
+Settling time (seconds) & X.X & X.X \\
+Overshoot (\%) & XX & XX \\
+Tracking error RMS (pixels) & XX & XX \\
+Completion time (seconds) & XX & XX \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Analysis}
+
+% PLACEHOLDER: Analyze why the improved control works better (5-6 sentences)
+% - Quantitative improvements from table
+% - Qualitative improvements observed
+% - Explanation of how control components contribute
+% - Trade-offs (e.g., slower response vs. stability)
+% - Remaining limitations
+
+\subsection{Bonus Question: Camera Selection}
+\label{subsec:camera_selection}
+
+% PLACEHOLDER: Address the bonus question (10 bonus points)
+% This subsection should include:
+% 1. Comparison of using OAK-D camera vs. current camera
+% 2. Considerations for ceiling line vs. ground line following
+% 3. Optimal tilt angles for both tasks
+
+\subsubsection{OAK-D Camera Characteristics}
+
+% PLACEHOLDER: Describe the OAK-D camera (3-4 sentences)
+% - Stereo depth capability
+% - Higher resolution
+% - Built-in AI processing
+% - Field of view differences
+
+\subsubsection{Ceiling Line Following with OAK-D}
+
+% PLACEHOLDER: Discuss using OAK-D for ceiling line following (4-5 sentences)
+% - Potential advantages (depth information, better resolution)
+% - Potential disadvantages (different field of view, mounting considerations)
+% - Whether depth information would be useful for this task
+% - Overall suitability
+
+\subsubsection{Ground Line Following Comparison}
+
+% PLACEHOLDER: Compare ceiling vs. ground line following (5-6 sentences)
+% - Key differences in the task
+% - Which camera is better suited for ground line following and why
+% - Importance of depth perception for ground navigation
+% - Obstacle avoidance considerations
+
+\subsubsection{Optimal Camera Tilt Angles}
+
+% PLACEHOLDER: Discuss optimal tilt angles (5-6 sentences)
+% - Current tilt angle for ceiling line following
+% - Recommended tilt angle for ground line following
+% - Trade-offs in tilt angle selection (field of view vs. line visibility)
+% - How tilt affects line detection difficulty
+
+\begin{figure}[H]
+    \centering
+    % PLACEHOLDER: Insert diagram showing camera angles
+    \fbox{\parbox{0.7\textwidth}{\centering
+        \textbf{[DIAGRAM: Camera Tilt Angles]}\\[1em]
+        Show side view of rover with camera at different tilt angles\\
+        for ceiling vs. ground line following
+    }}
+    \caption{Optimal camera tilt angles for different tasks. PLACEHOLDER: Illustrate recommended angles with justification.}
+    \label{fig:camera_angles}
+\end{figure}
+
+\subsection{Summary of Session 2}
+
+% PLACEHOLDER: Brief summary of Session 2 findings (3-4 sentences)
+% - Recap the main achievements (complete line following system)
+% - Highlight key improvements (tracking, control)
+% - Summarize overall success and challenges

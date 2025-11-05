@@ -1,0 +1,307 @@
+% session1.tex - Session 1: Line Detection
+\section{Session 1: Line Detection by UGV Rover}
+\label{sec:session1}
+
+% PLACEHOLDER: Brief introduction to Session 1 (2-3 sentences)
+% - Explain that this section covers the line detection phase
+% - Mention that the goal is to detect ceiling lines from camera images
+% - Preview the subsections: pipeline design, Canny implementation, full run testing, alternative algorithms
+
+\subsection{Line Detection Pipeline Design}
+\label{subsec:pipeline_design}
+
+% PLACEHOLDER: Describe your pipeline design (10 points)
+% This subsection should include:
+% 1. A clear description of the input (raw camera images from UGV Rover)
+% 2. Each processing step in your pipeline
+% 3. The output (detected lines)
+% 4. Justification for each step
+
+\subsubsection{Pipeline Overview}
+
+% PLACEHOLDER: Write 2-3 sentences introducing your pipeline
+% - Mention the main stages (e.g., preprocessing, edge detection, line extraction, filtering)
+% - Explain the overall flow from input to output
+
+\begin{figure}[H]
+    \centering
+    % PLACEHOLDER: Insert a flowchart or block diagram showing your pipeline
+    % The diagram should show: Camera Image → Preprocessing → Edge Detection → Line Extraction → Filtering → Output
+    % You can create this using TikZ, include an external image, or use the algorithm environment
+    \fbox{\parbox{0.8\textwidth}{\centering
+        \textbf{[FIGURE: Pipeline Flowchart]}\\[1em]
+        Insert a flowchart showing:\\
+        Raw Image $\rightarrow$ Grayscale Conversion $\rightarrow$ Noise Reduction $\rightarrow$\\
+        Edge Detection $\rightarrow$ Line Extraction $\rightarrow$ Brightness Filtering $\rightarrow$ Output
+    }}
+    \caption{Line detection pipeline architecture. PLACEHOLDER: This figure should illustrate the complete pipeline from raw camera input to final line detection output.}
+    \label{fig:pipeline}
+\end{figure}
+
+\subsubsection{Pipeline Steps}
+
+% PLACEHOLDER: Describe each step in detail
+% For each step, explain WHAT it does and WHY it's necessary
+
+\paragraph{Step 1: Image Acquisition}
+% PLACEHOLDER: Describe how images are captured from the UGV Rover camera
+% - Mention the ROS2 topic subscribed to
+% - Image format and resolution
+% - Frame rate considerations
+
+\paragraph{Step 2: Preprocessing}
+% PLACEHOLDER: Describe preprocessing steps
+% - Grayscale conversion (why: reduce computational complexity)
+% - Gaussian blur or median filtering (why: reduce noise for better edge detection)
+% - Contrast enhancement if needed (why: make ceiling lines more prominent)
+
+\paragraph{Step 3: Edge Detection}
+% PLACEHOLDER: Describe the edge detection stage
+% - Which algorithm is used (Canny for initial implementation)
+% - Parameter settings
+% - Why: edges correspond to line boundaries
+
+\paragraph{Step 4: Line Extraction}
+% PLACEHOLDER: Describe how lines are extracted from edge maps
+% - Hough Transform or contour detection
+% - Why: convert pixel-level edges into line representations
+
+\paragraph{Step 5: Line Filtering}
+% PLACEHOLDER: Describe how ceiling lines are distinguished from other lines
+% - Brightness-based filtering (ceiling lines are brighter)
+% - Position filtering (ceiling lines appear in upper portion of image)
+% - Orientation filtering (ceiling lines are mostly horizontal/vertical)
+% - Why: focus only on target ceiling lines
+
+\subsection{Implementation with Canny Edge Detector}
+\label{subsec:canny_implementation}
+
+% PLACEHOLDER: Describe Canny implementation (10 points)
+% This subsection should include:
+% 1. Brief description of how Canny edge detector works
+% 2. Implementation details (OpenCV functions used, parameters chosen)
+% 3. Five different detection results showing various scenarios
+
+\subsubsection{Canny Edge Detector Overview}
+
+% PLACEHOLDER: Write 3-4 sentences about Canny edge detector
+% - How it works (gradient calculation, non-maximum suppression, hysteresis thresholding)
+% - Why it's commonly used (optimal edge detection, good localization)
+% - Parameters used: lower and upper thresholds
+
+\subsubsection{Implementation Details}
+
+% PLACEHOLDER: Describe implementation
+% - OpenCV functions: cv2.Canny(), cv2.GaussianBlur()
+% - Parameter values chosen and rationale
+% - Any preprocessing applied before Canny
+
+\begin{lstlisting}[language=Python, caption={Canny edge detection implementation (simplified). PLACEHOLDER: Replace with your actual implementation code.}]
+import cv2
+import numpy as np
+
+def detect_lines_canny(image):
+    # PLACEHOLDER: Insert your actual implementation code
+    # This should include:
+    # - Grayscale conversion
+    # - Gaussian blur
+    # - Canny edge detection
+    # - Line extraction (Hough transform)
+    # - Filtering for ceiling lines
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, threshold1=50, threshold2=150)
+
+    # Further processing...
+    return detected_lines
+\end{lstlisting}
+
+\subsubsection{Detection Results}
+
+% PLACEHOLDER: Show five different detection results
+% For each result, include:
+% - The input image
+% - The processed output showing detected lines
+% - Brief caption explaining the scenario (e.g., "Well-lit corridor", "Multiple lines visible", etc.)
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.45\textwidth}
+        \centering
+        % PLACEHOLDER: Insert actual image
+        \fbox{\parbox{0.9\textwidth}{\centering [Input Image 1]}}
+        \caption{Input image}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.45\textwidth}
+        \centering
+        % PLACEHOLDER: Insert actual result
+        \fbox{\parbox{0.9\textwidth}{\centering [Result 1]}}
+        \caption{Detected edges}
+    \end{subfigure}
+    \caption{Result 1: PLACEHOLDER - Describe the scenario (e.g., "Ideal conditions with clear ceiling line")}
+    \label{fig:canny_result1}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.45\textwidth}
+        \centering
+        \fbox{\parbox{0.9\textwidth}{\centering [Input Image 2]}}
+        \caption{Input image}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.45\textwidth}
+        \centering
+        \fbox{\parbox{0.9\textwidth}{\centering [Result 2]}}
+        \caption{Detected edges}
+    \end{subfigure}
+    \caption{Result 2: PLACEHOLDER - Describe the scenario (e.g., "Multiple lines visible, including ground lines")}
+    \label{fig:canny_result2}
+\end{figure}
+
+% PLACEHOLDER: Add three more similar figure sets for Results 3, 4, and 5
+% Each should show different scenarios:
+% - Different lighting conditions
+% - Different numbers of lines visible
+% - Different challenging situations (occlusions, shadows, etc.)
+
+\subsection{Testing on Full Run}
+\label{subsec:full_run}
+
+% PLACEHOLDER: Describe testing on rosbag (10 points)
+% This subsection should include:
+% 1. How the algorithm performs on the provided rosbag
+% 2. Three success cases and/or three failure cases with images
+% 3. Analysis of why successes worked and failures occurred
+
+\subsubsection{Overall Performance}
+
+% PLACEHOLDER: Describe overall performance (4-5 sentences)
+% - How well the algorithm handles the complete rosbag sequence
+% - Success rate (qualitative or quantitative)
+% - Common patterns observed
+% - Main challenges encountered
+
+\subsubsection{Success Cases}
+
+% PLACEHOLDER: Show three impressive success cases
+% For each, include image and explanation of why it succeeded
+
+\begin{figure}[H]
+    \centering
+    % PLACEHOLDER: Insert success case image
+    \fbox{\parbox{0.7\textwidth}{\centering [Success Case 1]}}
+    \caption{Success Case 1: PLACEHOLDER - Explain why this detection worked well (e.g., "Clear ceiling line with high contrast and minimal interference from other objects")}
+    \label{fig:success1}
+\end{figure}
+
+% PLACEHOLDER: Add two more success cases (figures and captions)
+
+\subsubsection{Failure Cases}
+
+% PLACEHOLDER: Show three failure cases
+% For each, include image and explanation of why it failed
+
+\begin{figure}[H]
+    \centering
+    % PLACEHOLDER: Insert failure case image
+    \fbox{\parbox{0.7\textwidth}{\centering [Failure Case 1]}}
+    \caption{Failure Case 1: PLACEHOLDER - Explain why this detection failed (e.g., "Window edges and ground lines interfere with ceiling line detection")}
+    \label{fig:failure1}
+\end{figure}
+
+% PLACEHOLDER: Add two more failure cases (figures and captions)
+
+\subsubsection{Analysis}
+
+% PLACEHOLDER: Analyze the successes and failures (4-5 sentences)
+% - What conditions lead to successful detection?
+% - What conditions cause failures?
+% - What are the limitations of Canny-based approach?
+% - What improvements might be needed?
+
+\subsection{Alternative Line Detection Algorithm}
+\label{subsec:alternative_algorithm}
+
+% PLACEHOLDER: Describe your alternative algorithm (10 points)
+% This subsection should include:
+% 1. Design of alternative algorithm (not Canny)
+% 2. Comparison with Canny results
+% 3. Analysis of why it works better or worse
+
+\subsubsection{Algorithm Design}
+
+% PLACEHOLDER: Describe your alternative approach (5-6 sentences)
+% Options could include:
+% - Hough Transform based approach
+% - Sobel or Prewitt edge detection
+% - Machine learning based line detection
+% - Color-based segmentation followed by line fitting
+% - Probabilistic Hough Transform
+% Explain the key differences from Canny approach
+
+\subsubsection{Implementation}
+
+% PLACEHOLDER: Describe implementation details
+% - Specific algorithms/functions used
+% - Parameter tuning
+% - Any novel modifications or combinations
+
+\begin{algorithm}[H]
+\caption{Alternative Line Detection Algorithm. PLACEHOLDER: Replace with your actual algorithm}
+\label{alg:alternative}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Raw camera image $I$
+\State \textbf{Output:} Detected ceiling lines $L$
+\State
+\State \texttt{// PLACEHOLDER: Insert your algorithm steps}
+\State $I_{gray} \gets \text{ConvertToGrayscale}(I)$
+\State $I_{processed} \gets \text{ApplyPreprocessing}(I_{gray})$
+\State $features \gets \text{ExtractFeatures}(I_{processed})$
+\State $lines \gets \text{DetectLines}(features)$
+\State $L \gets \text{FilterCeilingLines}(lines)$
+\State \Return $L$
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Comparison with Canny Detector}
+
+% PLACEHOLDER: Compare your alternative with Canny
+% Show side-by-side results on same images
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.45\textwidth}
+        \centering
+        \fbox{\parbox{0.9\textwidth}{\centering [Canny Result]}}
+        \caption{Canny edge detector}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.45\textwidth}
+        \centering
+        \fbox{\parbox{0.9\textwidth}{\centering [Alternative Result]}}
+        \caption{Alternative algorithm}
+    \end{subfigure}
+    \caption{Comparison 1: PLACEHOLDER - Describe the comparison (e.g., "Alternative method better suppresses ground lines")}
+    \label{fig:comparison1}
+\end{figure}
+
+% PLACEHOLDER: Add 2-3 more comparison figures
+
+\subsubsection{Analysis and Discussion}
+
+% PLACEHOLDER: Analyze why your alternative works better or worse (5-7 sentences)
+% - Quantitative comparison if possible (detection accuracy, processing time)
+% - Qualitative comparison (robustness, false positives/negatives)
+% - Specific scenarios where alternative excels
+% - Specific scenarios where alternative fails
+% - Overall recommendation
+
+\subsection{Summary of Session 1}
+
+% PLACEHOLDER: Brief summary of Session 1 findings (3-4 sentences)
+% - Recap the main achievements
+% - Highlight the best performing approach
+% - Preview transition to Session 2
