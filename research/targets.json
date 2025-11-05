@@ -1,0 +1,37 @@
+{
+  "description": "Target LED light lines on the ceiling of the football field",
+  "image": "field.png",
+  "image_width": 820,
+  "image_height": 613,
+  "target_lines": [
+    {
+      "id": 1,
+      "name": "Far left LED strip",
+      "approximate_line": {"x1": 116, "y1": 0, "x2": 348, "y2": 190},
+      "tolerance": 40,
+      "description": "Far left diagonal LED strip"
+    },
+    {
+      "id": 2,
+      "name": "Center-left LED strip",
+      "approximate_line": {"x1": 371, "y1": 0, "x2": 452, "y2": 190},
+      "tolerance": 40,
+      "description": "Center-left diagonal LED strip"
+    },
+    {
+      "id": 3,
+      "name": "Center-right LED strip",
+      "approximate_line": {"x1": 649, "y1": 0, "x2": 551, "y2": 190},
+      "tolerance": 40,
+      "description": "Center-right diagonal LED strip"
+    },
+    {
+      "id": 4,
+      "name": "Far right LED strip",
+      "approximate_line": {"x1": 927, "y1": 0, "x2": 660, "y2": 190},
+      "tolerance": 40,
+      "description": "Far right diagonal LED strip"
+    }
+  ],
+  "scoring_notes": "Lines run roughly vertically/diagonally in the top half of the image. Coordinates scaled to actual image dimensions 820x613."
+}

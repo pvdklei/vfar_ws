@@ -2,6 +2,7 @@
 build/
 install/
 log/
+output/
 
 # Python compiled files
 __pycache__/
@@ -160,3 +161,9 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Agent files
+.claude/
+
+# VSCode settings
+.vscode/
