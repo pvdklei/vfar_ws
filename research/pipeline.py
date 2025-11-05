@@ -1,7 +1,336 @@
 import cv2
 import numpy as np
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, TypedDict, Literal
 import json
+
+
+# Utility functions that don't depend on class state
+def apply_morphology_operation(mask: np.ndarray, kernel_size: int, iterations: int,
+                              use_closing: bool = False) -> np.ndarray:
+    """Apply morphological operations with proper border handling."""
+    if kernel_size > 0 and iterations > 0:
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
+        # Use closing (dilation + erosion) to connect gaps without excessive thickening
+        if use_closing:
+            result = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=iterations,
+                                     borderType=cv2.BORDER_CONSTANT)
+        else:
+            result = cv2.dilate(mask, kernel, iterations=iterations, borderType=cv2.BORDER_CONSTANT)
+        # Ensure output has same shape as input
+        assert result.shape == mask.shape, f"Shape mismatch: {result.shape} vs {mask.shape}"
+        return result
+    return mask
+
+
+def detect_lines_in_edges(edges: np.ndarray, method: str, **params) -> Optional[np.ndarray]:
+    """Detect lines using specified method."""
+    if method == 'hough':
+        threshold = params.get('hough_threshold', 100)
+        min_line_length = params.get('min_line_length', 100)
+        max_line_gap = params.get('max_line_gap', 10)
+        return cv2.HoughLinesP(
+            edges, 1, np.pi / 180,
+            threshold=threshold,
+            minLineLength=min_line_length,
+            maxLineGap=max_line_gap
+        )
+    elif method == 'lsd':
+        # Line Segment Detector
+        lsd = cv2.createLineSegmentDetector(0)
+        lines, _, _, _ = lsd.detect(edges)
+        if lines is not None:
+            # Convert to HoughLinesP format for consistency
+            lines = lines.reshape(-1, 1, 4).astype(int)
+        return lines
+    else:
+        raise ValueError(f"Unknown line detection method: {method}")
+
+
+def point_to_line_distance(px: float, py: float, x1: float, y1: float,
+                          x2: float, y2: float) -> float:
+    """Calculate perpendicular distance from point to line segment."""
+    line_len_sq = (x2 - x1)**2 + (y2 - y1)**2
+    if line_len_sq == 0:
+        return np.sqrt((px - x1)**2 + (py - y1)**2)
+
+    # Parameter t represents position along line segment (0 to 1)
+    t = max(0, min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / line_len_sq))
+
+    # Find projection point on line
+    proj_x = x1 + t * (x2 - x1)
+    proj_y = y1 + t * (y2 - y1)
+
+    return np.sqrt((px - proj_x)**2 + (py - proj_y)**2)
+
+
+def sample_line_brightness(V: np.ndarray, x1: int, y1: int, x2: int, y2: int,
+                          width: int = 3, num_samples: int = 100) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    """
+    Sample brightness along a line and in perpendicular strips for background comparison.
+
+    Returns:
+        (line_values, bg_values): Arrays of brightness values, or (None, None) if line is invalid
+    """
+    xs = np.linspace(x1, x2, num_samples)
+    ys = np.linspace(y1, y2, num_samples)
+    dx = x2 - x1
+    dy = y2 - y1
+    length = np.hypot(dx, dy)
+
+    if length == 0:
+        return None, None
+
+    # Unit perpendicular vector (normal)
+    nx = -dy / length
+    ny = dx / length
+
+    line_vals = []
+    bg_vals = []
+
+    H, W = V.shape
+    for x, y in zip(xs, ys):
+        x_c = int(round(x))
+        y_c = int(round(y))
+        if 0 <= x_c < W and 0 <= y_c < H:
+            line_vals.append(V[y_c, x_c])
+
+            # Sample both sides perpendicular to line
+            for k in range(1, width + 1):
+                xp1 = int(round(x + nx * k))
+                yp1 = int(round(y + ny * k))
+                xp2 = int(round(x - nx * k))
+                yp2 = int(round(y - ny * k))
+                if 0 <= xp1 < W and 0 <= yp1 < H:
+                    bg_vals.append(V[yp1, xp1])
+                if 0 <= xp2 < W and 0 <= yp2 < H:
+                    bg_vals.append(V[yp2, xp2])
+
+    if not line_vals:
+        return None, None
+    return np.array(line_vals), np.array(bg_vals) if bg_vals else None
+
+
+def merge_collinear_lines(lines: Optional[np.ndarray],
+                         angle_threshold: float = 5.0,
+                         distance_threshold: float = 30.0) -> Optional[np.ndarray]:
+    """Merge collinear line segments into longer lines."""
+    if lines is None or len(lines) <= 1:
+        return lines
+
+    merged = []
+    used = set()
+
+    for i, line1 in enumerate(lines):
+        if i in used:
+            continue
+
+        x1, y1, x2, y2 = line1[0]
+        angle1 = np.degrees(np.arctan2(y2 - y1, x2 - x1))
+
+        # Collect all lines similar to this one
+        similar_lines = [(x1, y1, x2, y2)]
+        used.add(i)
+
+        for j, line2 in enumerate(lines):
+            if j in used:
+                continue
+
+            x3, y3, x4, y4 = line2[0]
+            angle2 = np.degrees(np.arctan2(y4 - y3, x4 - x3))
+
+            # Check angle similarity
+            angle_diff = abs(angle1 - angle2)
+            if angle_diff > 180:
+                angle_diff = 360 - angle_diff
+
+            if angle_diff > angle_threshold:
+                continue
+
+            # Check if lines are close (point to line distance)
+            dist1 = point_to_line_distance(x3, y3, x1, y1, x2, y2)
+            dist2 = point_to_line_distance(x4, y4, x1, y1, x2, y2)
+
+            if max(dist1, dist2) < distance_threshold:
+                similar_lines.append((x3, y3, x4, y4))
+                used.add(j)
+
+        # Merge all similar lines by fitting through all endpoints
+        if len(similar_lines) > 1:
+            all_points = []
+            for line in similar_lines:
+                all_points.append([line[0], line[1]])
+                all_points.append([line[2], line[3]])
+            all_points = np.array(all_points)
+
+            # Fit line through all points using PCA
+            mean = np.mean(all_points, axis=0)
+            centered = all_points - mean
+            _, _, vt = np.linalg.svd(centered)
+            direction = vt[0]
+
+            # Project all points onto the line and find extremes
+            projections = np.dot(centered, direction)
+            min_proj = np.min(projections)
+            max_proj = np.max(projections)
+
+            # Calculate endpoints
+            start = mean + min_proj * direction
+            end = mean + max_proj * direction
+
+            merged.append([[int(start[0]), int(start[1]), int(end[0]), int(end[1])]])
+        else:
+            merged.append(line1)
+
+    return np.array(merged) if merged else None
+
+
+def draw_lines_on_image(image: np.ndarray, lines: Optional[np.ndarray],
+                        matched_targets: Optional[set] = None, qualities: Optional[np.ndarray] = None) -> Tuple[np.ndarray, int]:
+    """
+    Draw lines on image with quality-based color coding.
+
+    Color scheme:
+    - Green: Matched target lines
+    - Red: Low quality unmatched lines (q <= 0.3)
+    - Yellow: Medium quality unmatched lines (0.3 < q < 0.6)
+    - Orange: High quality unmatched lines (q >= 0.6)
+    """
+    result = image.copy()
+    count = 0
+    if lines is not None:
+        for idx, line in enumerate(lines):
+            x1, y1, x2, y2 = line[0]
+
+            if matched_targets and idx in matched_targets:
+                # Green for matched targets
+                color = (0, 255, 0)
+            else:
+                # Color-code by quality for unmatched lines
+                if qualities is not None:
+                    q = qualities[idx]
+                    if q <= 0.3:
+                        color = (0, 0, 255)      # Red: bad quality
+                    elif q < 0.6:
+                        color = (0, 255, 255)    # Yellow: medium quality
+                    else:
+                        color = (0, 165, 255)    # Orange: high quality but unmatched
+                else:
+                    color = (0, 0, 255)  # Default red for unmatched
+
+            cv2.line(result, (x1, y1), (x2, y2), color, 2)
+            count += 1
+    return result, count
+
+
+def line_matches_target(detected_line: Tuple[int, int, int, int],
+                       target_line: 'TargetLine', tolerance: float) -> bool:
+    """Check if a detected line matches a target line within tolerance, including angle."""
+    dx1, dy1, dx2, dy2 = detected_line
+    tx1 = target_line['approximate_line']['x1']
+    ty1 = target_line['approximate_line']['y1']
+    tx2 = target_line['approximate_line']['x2']
+    ty2 = target_line['approximate_line']['y2']
+
+    # Calculate angles (in degrees)
+    detected_angle = np.degrees(np.arctan2(dy2 - dy1, dx2 - dx1))
+    target_angle = np.degrees(np.arctan2(ty2 - ty1, tx2 - tx1))
+
+    # Normalize angles to [-180, 180]
+    detected_angle = ((detected_angle + 180) % 360) - 180
+    target_angle = ((target_angle + 180) % 360) - 180
+
+    # Calculate angle difference (accounting for wraparound)
+    angle_diff = abs(detected_angle - target_angle)
+    if angle_diff > 180:
+        angle_diff = 360 - angle_diff
+
+    # STRICT: Reject if angle difference > 15 degrees
+    if angle_diff > 15:
+        return False
+
+    # Check if endpoints of detected line are close to target line
+    dist1 = point_to_line_distance(dx1, dy1, tx1, ty1, tx2, ty2)
+    dist2 = point_to_line_distance(dx2, dy2, tx1, ty1, tx2, ty2)
+
+    # Also check if target line endpoints are close to detected line
+    dist3 = point_to_line_distance(tx1, ty1, dx1, dy1, dx2, dy2)
+    dist4 = point_to_line_distance(tx2, ty2, dx1, dy1, dx2, dy2)
+
+    # Line matches if endpoints are close AND angle is similar
+    avg_dist = (dist1 + dist2 + dist3 + dist4) / 4
+    return avg_dist < tolerance
+
+
+# Type definitions for configuration and target structures
+class ApproximateLine(TypedDict):
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+
+
+class TargetLine(TypedDict):
+    id: int
+    name: str
+    approximate_line: ApproximateLine
+    tolerance: int
+    description: str
+
+
+class TargetsData(TypedDict):
+    description: str
+    image: str
+    image_width: int
+    image_height: int
+    target_lines: List[TargetLine]
+    scoring_notes: Optional[str]
+
+
+class PipelineConfigRequired(TypedDict):
+    # Required fields
+    colorspace: Literal['gray', 'hsv']
+    brightness_threshold: int
+    morph_kernel_size: int
+    morph_iterations: int
+    use_overlay: bool
+    edge_method: Literal['canny', 'sobel']
+    line_method: Literal['hough', 'lsd']
+
+
+class PipelineConfig(PipelineConfigRequired, total=False):
+    # Optional preprocessing fields
+    use_adaptive: bool
+    use_clahe: bool
+    use_background_norm: bool
+    roi_top_ratio: float
+    use_closing: bool
+    merge_lines: bool
+    
+    # Optional edge detection parameters
+    canny_low: int
+    canny_high: int
+    blur_kernel: int
+    sobel_threshold: int
+    
+    # Optional line detection parameters
+    hough_threshold: int
+    min_line_length: int
+    max_line_gap: int
+
+
+class MetricsResult(TypedDict, total=False):
+    count: int
+    matched_targets: int
+    matched_target_ids: List[int]
+    precision: float
+    recall: float
+    f1_score: float
+    score: float
+    matched_line_indices: set
+    qualities: List[float]
+    fp_bad: int
+    fp_soft: int
+    config: PipelineConfig
 
 
 class LineDetectionPipeline:
@@ -16,7 +345,7 @@ class LineDetectionPipeline:
     This class is designed to be reusable for rover robots that need to find LED lines in images.
     """
 
-    def __init__(self, image: Optional[np.ndarray] = None, targets: Optional[Dict] = None):
+    def __init__(self, image: Optional[np.ndarray] = None, targets: Optional[TargetsData] = None):
         """
         Initialize the pipeline.
         
@@ -60,6 +389,7 @@ class LineDetectionPipeline:
         """Apply brightness threshold with optional preprocessing enhancements and ROI masking."""
         if self.original_color is None:
             raise ValueError("No image loaded. Call set_image() first.")
+        assert self.gray is not None and self.hsv is not None, "Color spaces not initialized."
             
         if colorspace == 'gray':
             channel = self.gray.copy()
@@ -102,22 +432,6 @@ class LineDetectionPipeline:
             roi_mask[:roi_height, :] = 255
             mask = cv2.bitwise_and(mask, roi_mask)
 
-        return mask
-
-    def apply_morphology(self, mask: np.ndarray, kernel_size: int, iterations: int,
-                        use_closing: bool = False) -> np.ndarray:
-        """Apply morphological operations with proper border handling."""
-        if kernel_size > 0 and iterations > 0:
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
-            # Use closing (dilation + erosion) to connect gaps without excessive thickening
-            if use_closing:
-                result = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=iterations,
-                                         borderType=cv2.BORDER_CONSTANT)
-            else:
-                result = cv2.dilate(mask, kernel, iterations=iterations, borderType=cv2.BORDER_CONSTANT)
-            # Ensure output has same shape as input
-            assert result.shape == mask.shape, f"Shape mismatch: {result.shape} vs {mask.shape}"
-            return result
         return mask
 
     def create_overlay(self, mask: np.ndarray, use_overlay: bool) -> np.ndarray:
@@ -172,239 +486,6 @@ class LineDetectionPipeline:
         else:
             raise ValueError(f"Unknown edge detection method: {method}")
 
-    def merge_collinear_lines(self, lines: Optional[np.ndarray],
-                             angle_threshold: float = 5.0,
-                             distance_threshold: float = 30.0) -> Optional[np.ndarray]:
-        """Merge collinear line segments into longer lines."""
-        if lines is None or len(lines) <= 1:
-            return lines
-
-        merged = []
-        used = set()
-
-        for i, line1 in enumerate(lines):
-            if i in used:
-                continue
-
-            x1, y1, x2, y2 = line1[0]
-            angle1 = np.degrees(np.arctan2(y2 - y1, x2 - x1))
-
-            # Collect all lines similar to this one
-            similar_lines = [(x1, y1, x2, y2)]
-            used.add(i)
-
-            for j, line2 in enumerate(lines):
-                if j in used:
-                    continue
-
-                x3, y3, x4, y4 = line2[0]
-                angle2 = np.degrees(np.arctan2(y4 - y3, x4 - x3))
-
-                # Check angle similarity
-                angle_diff = abs(angle1 - angle2)
-                if angle_diff > 180:
-                    angle_diff = 360 - angle_diff
-
-                if angle_diff > angle_threshold:
-                    continue
-
-                # Check if lines are close (point to line distance)
-                dist1 = self.point_to_line_distance(x3, y3, x1, y1, x2, y2)
-                dist2 = self.point_to_line_distance(x4, y4, x1, y1, x2, y2)
-
-                if max(dist1, dist2) < distance_threshold:
-                    similar_lines.append((x3, y3, x4, y4))
-                    used.add(j)
-
-            # Merge all similar lines by fitting through all endpoints
-            if len(similar_lines) > 1:
-                all_points = []
-                for line in similar_lines:
-                    all_points.append([line[0], line[1]])
-                    all_points.append([line[2], line[3]])
-                all_points = np.array(all_points)
-
-                # Fit line through all points using PCA
-                mean = np.mean(all_points, axis=0)
-                centered = all_points - mean
-                _, _, vt = np.linalg.svd(centered)
-                direction = vt[0]
-
-                # Project all points onto the line and find extremes
-                projections = np.dot(centered, direction)
-                min_proj = np.min(projections)
-                max_proj = np.max(projections)
-
-                # Calculate endpoints
-                start = mean + min_proj * direction
-                end = mean + max_proj * direction
-
-                merged.append([[int(start[0]), int(start[1]), int(end[0]), int(end[1])]])
-            else:
-                merged.append(line1)
-
-        return np.array(merged) if merged else None
-
-    def detect_lines(self, edges: np.ndarray, method: str, **params) -> Optional[np.ndarray]:
-        """Detect lines using specified method."""
-        if method == 'hough':
-            threshold = params.get('hough_threshold', 100)
-            min_line_length = params.get('min_line_length', 100)
-            max_line_gap = params.get('max_line_gap', 10)
-            return cv2.HoughLinesP(
-                edges, 1, np.pi / 180,
-                threshold=threshold,
-                minLineLength=min_line_length,
-                maxLineGap=max_line_gap
-            )
-        elif method == 'lsd':
-            # Line Segment Detector
-            lsd = cv2.createLineSegmentDetector(0)
-            lines, _, _, _ = lsd.detect(edges)
-            if lines is not None:
-                # Convert to HoughLinesP format for consistency
-                lines = lines.reshape(-1, 1, 4).astype(int)
-            return lines
-        else:
-            raise ValueError(f"Unknown line detection method: {method}")
-
-    def draw_lines(self, image: np.ndarray, lines: Optional[np.ndarray],
-                   matched_targets: Optional[set] = None, qualities: Optional[np.ndarray] = None) -> Tuple[np.ndarray, int]:
-        """
-        Draw lines on image with quality-based color coding.
-
-        Color scheme:
-        - Green: Matched target lines
-        - Red: Low quality unmatched lines (q <= 0.3)
-        - Yellow: Medium quality unmatched lines (0.3 < q < 0.6)
-        - Orange: High quality unmatched lines (q >= 0.6)
-        """
-        result = image.copy()
-        count = 0
-        if lines is not None:
-            for idx, line in enumerate(lines):
-                x1, y1, x2, y2 = line[0]
-
-                if matched_targets and idx in matched_targets:
-                    # Green for matched targets
-                    color = (0, 255, 0)
-                else:
-                    # Color-code by quality for unmatched lines
-                    if qualities is not None:
-                        q = qualities[idx]
-                        if q <= 0.3:
-                            color = (0, 0, 255)      # Red: bad quality
-                        elif q < 0.6:
-                            color = (0, 255, 255)    # Yellow: medium quality
-                        else:
-                            color = (0, 165, 255)    # Orange: high quality but unmatched
-                    else:
-                        color = (0, 0, 255)  # Default red for unmatched
-
-                cv2.line(result, (x1, y1), (x2, y2), color, 2)
-                count += 1
-        return result, count
-
-    def point_to_line_distance(self, px: float, py: float, x1: float, y1: float,
-                               x2: float, y2: float) -> float:
-        """Calculate perpendicular distance from point to line segment."""
-        line_len_sq = (x2 - x1)**2 + (y2 - y1)**2
-        if line_len_sq == 0:
-            return np.sqrt((px - x1)**2 + (py - y1)**2)
-
-        # Parameter t represents position along line segment (0 to 1)
-        t = max(0, min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / line_len_sq))
-
-        # Find projection point on line
-        proj_x = x1 + t * (x2 - x1)
-        proj_y = y1 + t * (y2 - y1)
-
-        return np.sqrt((px - proj_x)**2 + (py - proj_y)**2)
-
-    def line_matches_target(self, detected_line: Tuple[int, int, int, int],
-                           target_line: Dict, tolerance: float) -> bool:
-        """Check if a detected line matches a target line within tolerance, including angle."""
-        dx1, dy1, dx2, dy2 = detected_line
-        tx1 = target_line['approximate_line']['x1']
-        ty1 = target_line['approximate_line']['y1']
-        tx2 = target_line['approximate_line']['x2']
-        ty2 = target_line['approximate_line']['y2']
-
-        # Calculate angles (in degrees)
-        detected_angle = np.degrees(np.arctan2(dy2 - dy1, dx2 - dx1))
-        target_angle = np.degrees(np.arctan2(ty2 - ty1, tx2 - tx1))
-
-        # Normalize angles to [-180, 180]
-        detected_angle = ((detected_angle + 180) % 360) - 180
-        target_angle = ((target_angle + 180) % 360) - 180
-
-        # Calculate angle difference (accounting for wraparound)
-        angle_diff = abs(detected_angle - target_angle)
-        if angle_diff > 180:
-            angle_diff = 360 - angle_diff
-
-        # STRICT: Reject if angle difference > 15 degrees
-        if angle_diff > 15:
-            return False
-
-        # Check if endpoints of detected line are close to target line
-        dist1 = self.point_to_line_distance(dx1, dy1, tx1, ty1, tx2, ty2)
-        dist2 = self.point_to_line_distance(dx2, dy2, tx1, ty1, tx2, ty2)
-
-        # Also check if target line endpoints are close to detected line
-        dist3 = self.point_to_line_distance(tx1, ty1, dx1, dy1, dx2, dy2)
-        dist4 = self.point_to_line_distance(tx2, ty2, dx1, dy1, dx2, dy2)
-
-        # Line matches if endpoints are close AND angle is similar
-        avg_dist = (dist1 + dist2 + dist3 + dist4) / 4
-        return avg_dist < tolerance
-
-    def _sample_line_brightness(self, V: np.ndarray, x1: int, y1: int, x2: int, y2: int,
-                                width: int = 3, num_samples: int = 100) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        """
-        Sample brightness along a line and in perpendicular strips for background comparison.
-
-        Returns:
-            (line_values, bg_values): Arrays of brightness values, or (None, None) if line is invalid
-        """
-        xs = np.linspace(x1, x2, num_samples)
-        ys = np.linspace(y1, y2, num_samples)
-        dx = x2 - x1
-        dy = y2 - y1
-        length = np.hypot(dx, dy)
-
-        if length == 0:
-            return None, None
-
-        # Unit perpendicular vector (normal)
-        nx = -dy / length
-        ny = dx / length
-
-        line_vals = []
-        bg_vals = []
-
-        H, W = V.shape
-        for x, y in zip(xs, ys):
-            x_c = int(round(x))
-            y_c = int(round(y))
-            if 0 <= x_c < W and 0 <= y_c < H:
-                line_vals.append(V[y_c, x_c])
-
-                # Sample both sides perpendicular to line
-                for k in range(1, width + 1):
-                    xp1 = int(round(x + nx * k))
-                    yp1 = int(round(y + ny * k))
-                    xp2 = int(round(x - nx * k))
-                    yp2 = int(round(y - ny * k))
-                    if 0 <= xp1 < W and 0 <= yp1 < H:
-                        bg_vals.append(V[yp1, xp1])
-                    if 0 <= xp2 < W and 0 <= yp2 < H:
-                        bg_vals.append(V[yp2, xp2])
-
-        if not line_vals:
-            return None, None
-        return np.array(line_vals), np.array(bg_vals) if bg_vals else None
-
     def compute_line_quality(self, line: np.ndarray, bright_thr: int = 180) -> float:
         """
         Compute a quality score [0,1] for a detected line based on brightness profile.
@@ -426,7 +507,7 @@ class LineDetectionPipeline:
             return 0.0
         V = self.hsv[:, :, 2]  # Brightness channel
 
-        line_vals, bg_vals = self._sample_line_brightness(V, x1, y1, x2, y2)
+        line_vals, bg_vals = sample_line_brightness(V, x1, y1, x2, y2)
 
         if line_vals is None:
             return 0.0
@@ -463,7 +544,7 @@ class LineDetectionPipeline:
         return np.array(qualities)
 
     def evaluate_lines(self, lines: Optional[np.ndarray], qualities: Optional[np.ndarray] = None,
-                      q_good: float = 0.6, q_bad: float = 0.3) -> Dict:
+                      q_good: float = 0.6, q_bad: float = 0.3) -> MetricsResult:
         """
         Evaluate detected lines with quality-based scoring.
 
@@ -523,7 +604,7 @@ class LineDetectionPipeline:
 
             for idx, line in enumerate(lines):
                 x1, y1, x2, y2 = line[0]
-                if self.line_matches_target((x1, y1, x2, y2), target, tolerance):
+                if line_matches_target((x1, y1, x2, y2), target, tolerance):
                     # Only accept match if quality is good
                     if qualities is not None and qualities[idx] >= q_good:
                         matched_targets.add(target_id)
@@ -582,7 +663,7 @@ class LineDetectionPipeline:
             'qualities': qualities.tolist() if qualities is not None else []
         }
 
-    def process_configuration(self, config: Dict) -> Tuple[Dict, List[Tuple[str, np.ndarray]]]:
+    def process_configuration(self, config: PipelineConfig) -> Tuple[MetricsResult, List[Tuple[str, np.ndarray]]]:
         """
         Process a single configuration and return results.
         
@@ -611,7 +692,7 @@ class LineDetectionPipeline:
         steps.append(('1_brightness_mask', mask))
 
         # Step 2: Morphology
-        mask = self.apply_morphology(
+        mask = apply_morphology_operation(
             mask,
             config['morph_kernel_size'],
             config['morph_iterations'],
@@ -635,7 +716,7 @@ class LineDetectionPipeline:
         steps.append(('4_edges', edges))
 
         # Step 5: Line detection
-        lines = self.detect_lines(
+        lines = detect_lines_in_edges(
             edges,
             config['line_method'],
             hough_threshold=config.get('hough_threshold', 100),
@@ -645,7 +726,7 @@ class LineDetectionPipeline:
 
         # Step 5.5: Merge collinear lines if enabled
         if config.get('merge_lines', False):
-            lines = self.merge_collinear_lines(lines)
+            lines = merge_collinear_lines(lines)
 
         # Step 5.6: Compute line quality scores
         qualities = self.compute_lines_quality(lines) if lines is not None else None
@@ -655,14 +736,14 @@ class LineDetectionPipeline:
 
         # Step 6: Draw lines (color-coded by quality and match status)
         matched_indices = metrics.get('matched_line_indices', set())
-        result, _ = self.draw_lines(self.original_color, lines, matched_indices, qualities=qualities)
+        result, _ = draw_lines_on_image(self.original_color, lines, matched_indices, qualities=qualities)
         steps.append(('5_final_lines', result))
 
         metrics['config'] = config
 
         return metrics, steps
 
-    def detect_led_lines(self, config: Dict) -> Tuple[Optional[np.ndarray], Dict]:
+    def detect_led_lines(self, config: PipelineConfig) -> Tuple[Optional[np.ndarray], MetricsResult]:
         """
         Simplified interface for rover robots to detect LED lines.
         
@@ -686,7 +767,7 @@ class LineDetectionPipeline:
             roi_top_ratio=config.get('roi_top_ratio', 0.0)
         )
         
-        mask = self.apply_morphology(
+        mask = apply_morphology_operation(
             mask,
             config['morph_kernel_size'],
             config['morph_iterations'],
@@ -704,7 +785,7 @@ class LineDetectionPipeline:
             sobel_threshold=config.get('sobel_threshold', 50)
         )
         
-        lines = self.detect_lines(
+        lines = detect_lines_in_edges(
             edges,
             config['line_method'],
             hough_threshold=config.get('hough_threshold', 100),
@@ -713,6 +794,6 @@ class LineDetectionPipeline:
         )
         
         if config.get('merge_lines', False):
-            lines = self.merge_collinear_lines(lines)
+            lines = merge_collinear_lines(lines)
             
         return lines, metrics
