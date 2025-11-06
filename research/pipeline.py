@@ -1,7 +1,30 @@
 import cv2
 import numpy as np
-from typing import Dict, List, Tuple, Optional, TypedDict, Literal
+from typing import Dict, List, Tuple, Optional, TypedDict, Literal, Union
 import json
+
+
+def select_channel(gray: np.ndarray, hsv: np.ndarray, colorspace: Literal['gray', 'hsv']) -> np.ndarray:
+    """
+    Select appropriate image channel based on colorspace configuration.
+    
+    Args:
+        gray: Grayscale image
+        hsv: HSV image 
+        colorspace: Either 'gray' or 'hsv'
+        
+    Returns:
+        Selected channel as numpy array
+        
+    Raises:
+        ValueError: If colorspace is not 'gray' or 'hsv'
+    """
+    if colorspace == 'gray':
+        return gray.copy()
+    elif colorspace == 'hsv':
+        return hsv[:, :, 2].copy()  # V (brightness) channel
+    else:
+        raise ValueError(f"Unknown colorspace: {colorspace}")
 
 
 # Utility functions that don't depend on class state
@@ -61,6 +84,48 @@ def point_to_line_distance(px: float, py: float, x1: float, y1: float,
     proj_y = y1 + t * (y2 - y1)
 
     return np.sqrt((px - proj_x)**2 + (py - proj_y)**2)
+
+
+def apply_brightness_threshold(channel: np.ndarray, threshold: int,
+                               use_adaptive: bool = False, use_clahe: bool = False,
+                               use_background_norm: bool = False, roi_top_ratio: float = 0.0) -> np.ndarray:
+    """Apply brightness threshold with optional preprocessing enhancements and ROI masking."""
+
+    # Step 1: Background normalization (remove slow-varying illumination)
+    if use_background_norm:
+        channel_float = channel.astype(np.float32)
+        blur = cv2.GaussianBlur(channel_float, (31, 31), 0)
+        # Subtract background and normalize
+        normalized = channel_float - blur
+        channel = np.zeros_like(normalized, dtype=np.uint8)
+        cv2.normalize(normalized, channel, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+
+    # Step 2: Apply CLAHE for better contrast
+    if use_clahe:
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        channel = clahe.apply(channel)
+
+    # Step 3: Thresholding (adaptive or global)
+    if use_adaptive:
+        mask = cv2.adaptiveThreshold(
+            channel, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            31,  # block size
+            -5  # C constant
+        )
+    else:
+        _, mask = cv2.threshold(channel, threshold, 255, cv2.THRESH_BINARY)
+
+    # Step 4: Apply ROI mask (focus on top portion of image for ceiling LEDs)
+    if roi_top_ratio > 0:
+        roi_mask = np.zeros_like(mask)
+        height = mask.shape[0]
+        roi_height = int(height * roi_top_ratio)
+        roi_mask[:roi_height, :] = 255
+        mask = cv2.bitwise_and(mask, roi_mask)
+
+    return mask
 
 
 def sample_line_brightness(V: np.ndarray, x1: int, y1: int, x2: int, y2: int,
@@ -261,7 +326,7 @@ def line_matches_target(detected_line: Tuple[int, int, int, int],
     return avg_dist < tolerance
 
 
-# Type definitions for configuration and target structures
+# Type definitions for the pipeline configuration and results
 class ApproximateLine(TypedDict):
     x1: int
     y1: int
@@ -333,6 +398,353 @@ class MetricsResult(TypedDict, total=False):
     config: PipelineConfig
 
 
+def detect_led_lines(channel: np.ndarray, config: PipelineConfig, original_color: np.ndarray, 
+                    brightness_channel: Optional[np.ndarray] = None) -> Tuple[Optional[np.ndarray], MetricsResult]:
+    """
+    Detect LED lines from a pre-processed channel.
+    
+    Args:
+        channel: Pre-selected image channel (grayscale or HSV V-channel)
+        config: Configuration dictionary
+        original_color: Original color image for overlay creation
+        brightness_channel: Channel to use for quality evaluation (e.g., HSV V-channel)
+        
+    Returns:
+        Tuple of (detected_lines, metrics)
+        detected_lines: numpy array of lines in format [[x1, y1, x2, y2], ...] or None
+        metrics: Dictionary with detection metrics and quality scores
+    """
+    mask = apply_brightness_threshold(
+        channel,
+        config['brightness_threshold'],
+        use_adaptive=config.get('use_adaptive', False),
+        use_clahe=config.get('use_clahe', False),
+        use_background_norm=config.get('use_background_norm', False),
+        roi_top_ratio=config.get('roi_top_ratio', 0.0)
+    )
+    
+    mask = apply_morphology_operation(
+        mask,
+        config['morph_kernel_size'],
+        config['morph_iterations'],
+        use_closing=config.get('use_closing', False)
+    )
+    
+    processed = create_overlay(mask, config['use_overlay'], original_color)
+    
+    edges = detect_edges(
+        processed,
+        config['edge_method'],
+        canny_low=config.get('canny_low', 50),
+        canny_high=config.get('canny_high', 150),
+        blur_kernel=config.get('blur_kernel', 0),
+        sobel_threshold=config.get('sobel_threshold', 50)
+    )
+    
+    lines = detect_lines_in_edges(
+        edges,
+        config['line_method'],
+        hough_threshold=config.get('hough_threshold', 100),
+        min_line_length=config.get('min_line_length', 100),
+        max_line_gap=config.get('max_line_gap', 10)
+    )
+    
+    if config.get('merge_lines', False):
+        lines = merge_collinear_lines(lines)
+    
+    # Evaluate line quality (intrinsic properties only, no target matching)
+    quality_metrics = evaluate_line_quality(lines, channel=brightness_channel)
+    
+    # Convert to MetricsResult format for compatibility
+    metrics: MetricsResult = {
+        'count': quality_metrics['count'],
+        'matched_targets': 0,  # No target matching in this simplified interface
+        'matched_target_ids': [],
+        'precision': 0,
+        'recall': 0,
+        'f1_score': 0,
+        'score': quality_metrics['quality_score'] * 100,  # Scale quality score
+        'matched_line_indices': set(),
+        'qualities': quality_metrics['qualities']
+    }
+    
+    return lines, metrics
+
+
+def compute_line_quality(channel: np.ndarray, line: np.ndarray, bright_thr: int = 180) -> float:
+    """
+    Compute a quality score [0,1] for a detected line based on brightness profile.
+
+    High quality lines (LED strips) should be:
+    - Very bright along their length
+    - Consistent brightness (low std)
+    - Brighter than surrounding background
+
+    Args:
+        channel: Brightness channel (e.g., HSV V channel)
+        line: Line coordinates [x1, y1, x2, y2]
+        bright_thr: Threshold for "bright" pixels
+
+    Returns:
+        Quality score in [0, 1] where 1 = perfect LED candidate
+    """
+    x1, y1, x2, y2 = line[0]
+
+    line_vals, bg_vals = sample_line_brightness(channel, x1, y1, x2, y2)
+
+    if line_vals is None:
+        return 0.0
+
+    mean_line = float(line_vals.mean())
+    std_line = float(line_vals.std())
+    bright_ratio = float((line_vals > bright_thr).mean())
+
+    if bg_vals is not None and len(bg_vals) > 0:
+        mean_bg = float(bg_vals.mean())
+        contrast = mean_line - mean_bg
+    else:
+        mean_bg = 0.0
+        contrast = mean_line
+
+    # Normalize each component to [0, 1] with soft thresholds
+    q_bright = np.clip((mean_line - 150) / 80.0, 0.0, 1.0)       # 150-230 range
+    q_ratio = np.clip((bright_ratio - 0.6) / 0.4, 0.0, 1.0)      # 60-100% bright pixels
+    q_contrast = np.clip((contrast - 20) / 80.0, 0.0, 1.0)       # 20-100 contrast
+    q_stable = 1.0 - np.clip((std_line - 10) / 40.0, 0.0, 1.0)   # Low std => stable
+
+    # Weighted combination
+    q = 0.35 * q_bright + 0.25 * q_ratio + 0.25 * q_contrast + 0.15 * q_stable
+    return float(q)
+
+
+def detect_edges(image: np.ndarray, method: str, **params) -> np.ndarray:
+    """Detect edges using specified method with optional Gaussian blur."""
+    # Optional: Apply Gaussian blur before edge detection to reduce noise
+    blur_kernel = params.get('blur_kernel', 0)
+    if blur_kernel > 0:
+        # Ensure kernel is odd
+        if blur_kernel % 2 == 0:
+            blur_kernel += 1
+        image = cv2.GaussianBlur(image, (blur_kernel, blur_kernel), 0)
+
+    if method == 'canny':
+        # Ensure grayscale for Canny (works on overlay or mask)
+        if image.ndim == 3:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        if image.dtype != np.uint8:
+            normalized = np.zeros_like(image, dtype=np.uint8)
+            image = cv2.normalize(image, normalized, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+
+        threshold1 = params.get('canny_low', 50)
+        threshold2 = params.get('canny_high', 150)
+        edges = cv2.Canny(image, threshold1, threshold2)
+        return edges
+    elif method == 'sobel':
+        # Sobel edge detection
+        if len(image.shape) == 3:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        sobel_x = cv2.Sobel(image, cv2.CV_64F, 1, 0, ksize=3)
+        sobel_y = cv2.Sobel(image, cv2.CV_64F, 0, 1, ksize=3)
+        magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
+        # Guard against div-by-zero
+        max_val = magnitude.max()
+        if max_val > 0:
+            magnitude_normalized = magnitude / max_val * 255
+        else:
+            magnitude_normalized = np.zeros_like(magnitude, dtype=np.uint8)
+        magnitude_uint8 = magnitude_normalized.astype(np.uint8)
+        # Apply threshold to get binary edges
+        _, edges = cv2.threshold(magnitude_uint8, params.get('sobel_threshold', 50), 255, cv2.THRESH_BINARY)
+        return edges
+    else:
+        raise ValueError(f"Unknown edge detection method: {method}")
+
+
+def compute_lines_quality(channel: np.ndarray, lines: np.ndarray) -> np.ndarray:
+    """Compute quality scores for all lines."""
+    qualities = []
+    for line in lines:
+        q = compute_line_quality(channel, line)
+        qualities.append(q)
+    return np.array(qualities)
+
+
+def evaluate_line_quality(lines: Optional[np.ndarray], channel: Optional[np.ndarray] = None, 
+                           qualities: Optional[np.ndarray] = None, q_good: float = 0.6, q_bad: float = 0.3) -> Dict:
+    """
+    Evaluate lines based on their intrinsic quality properties.
+
+    Args:
+        lines: Detected lines
+        channel: Brightness channel for computing qualities (e.g., HSV V channel)
+        qualities: Quality scores for each line [0,1], or None to compute them
+        q_good: Threshold for "good" LED candidates (>=)
+        q_bad: Threshold for "bad" lines (<=)
+
+    Returns:
+        Dictionary with line quality metrics (count, qualities, quality distribution)
+    """
+    if lines is None or len(lines) == 0:
+        return {
+            'count': 0,
+            'qualities': [],
+            'good_lines': 0,
+            'bad_lines': 0,
+            'medium_lines': 0,
+            'quality_score': 0.0
+        }
+
+    # Compute qualities if not provided
+    if qualities is None:
+        if channel is None:
+            qualities = np.zeros(len(lines))  # Return zero quality scores if no channel data
+        else:
+            qualities = compute_lines_quality(channel, lines)
+
+    # Classify lines by quality
+    good_lines = int((qualities >= q_good).sum())
+    bad_lines = int((qualities <= q_bad).sum())
+    medium_lines = len(lines) - good_lines - bad_lines
+
+    # Overall quality score based on distribution
+    quality_score = float(qualities.mean()) if len(qualities) > 0 else 0.0
+
+    return {
+        'count': len(lines),
+        'qualities': qualities.tolist(),
+        'good_lines': good_lines,
+        'bad_lines': bad_lines,
+        'medium_lines': medium_lines,
+        'quality_score': quality_score
+    }
+
+
+def evaluate_target_matching(lines: Optional[np.ndarray], targets: Optional[TargetsData] = None,
+                             qualities: Optional[np.ndarray] = None, q_good: float = 0.6, q_bad: float = 0.3) -> MetricsResult:
+    """
+    Evaluate how well detected lines match target lines.
+
+    Args:
+        lines: Detected lines
+        targets: Target lines data structure (optional)
+        qualities: Quality scores for each line [0,1], required for target matching
+        q_good: Threshold for "good" LED candidates (>=)
+        q_bad: Threshold for "bad" lines (<=)
+
+    Returns:
+        MetricsResult with precision, recall, F1, and matching statistics
+    """
+    if lines is None or len(lines) == 0:
+        return {
+            'count': 0,
+            'matched_targets': 0,
+            'matched_target_ids': [],
+            'precision': 0,
+            'recall': 0,
+            'f1_score': 0,
+            'score': 0,
+            'matched_line_indices': set(),
+            'qualities': []
+        }
+
+    # If no targets provided, fall back to simple counting
+    if not targets:
+        return {
+            'count': len(lines),
+            'matched_targets': 0,
+            'matched_target_ids': [],
+            'precision': 0,
+            'recall': 0,
+            'f1_score': 0,
+            'score': len(lines) * 10,
+            'matched_line_indices': set(),
+            'qualities': qualities.tolist() if qualities is not None else []
+        }
+
+    # Ensure we have qualities for target matching
+    if qualities is None:
+        qualities = np.zeros(len(lines))
+
+    target_lines = targets.get('target_lines', [])
+    matched_targets = set()
+    matched_target_ids = []
+    matched_line_indices = set()
+
+    # For each target, find if any detected line matches it
+    # Only count as TP if line quality >= q_good
+    for target in target_lines:
+        target_id = target['id']
+        tolerance = target.get('tolerance', 20)
+
+        for idx, line in enumerate(lines):
+            x1, y1, x2, y2 = line[0]
+            if line_matches_target((x1, y1, x2, y2), target, tolerance):
+                # Only accept match if quality is good
+                if qualities[idx] >= q_good:
+                    matched_targets.add(target_id)
+                    matched_target_ids.append(target_id)
+                    matched_line_indices.add(idx)
+                    break  # Move to next target once matched
+
+    # Classify false positives by quality
+    fp_bad = 0
+    fp_soft = 0
+    for idx in range(len(lines)):
+        if idx not in matched_line_indices:
+            q = qualities[idx]
+            if q <= q_bad:
+                fp_bad += 1
+            elif q < q_good:
+                fp_soft += 1
+            # Note: high-quality unmatched lines (q >= q_good) don't count as bad FPs
+
+    num_detected = len(lines)
+    num_targets = len(target_lines)
+    tp = len(matched_targets)  # True positives
+    fn = num_targets - tp      # False negatives
+
+    # Calculate precision and recall with quality weighting
+    # Precision: TP / (TP + FP_bad + FP_soft)
+    total_fp = fp_bad + fp_soft
+    precision = tp / (tp + total_fp) if (tp + total_fp) > 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+
+    # F-beta score: beta < 1 gives more weight to precision
+    beta = 0.7
+    if precision + recall > 0:
+        f_beta = (1 + beta**2) * (precision * recall) / (beta**2 * precision + recall)
+    else:
+        f_beta = 0
+
+    # Strong exponential penalty for bad false positives
+    alpha = 0.5  # Penalty strength
+    bad_penalty = np.exp(-alpha * fp_bad)
+
+    # Score: Precision-weighted F-score with exponential bad-FP penalty
+    score = f_beta * bad_penalty * 1000
+
+    return {
+        'count': num_detected,
+        'matched_targets': tp,
+        'matched_target_ids': matched_target_ids,
+        'precision': precision,
+        'recall': recall,
+        'f1_score': f_beta,  # Using F-beta score (precision-weighted)
+        'fp_bad': fp_bad,
+        'fp_soft': fp_soft,
+        'score': score,
+        'matched_line_indices': matched_line_indices,
+        'qualities': qualities.tolist()
+    }
+
+
+def create_overlay(mask: np.ndarray, use_overlay: bool, image: Optional[np.ndarray] = None) -> np.ndarray:
+    """Create overlay of mask on original image or return mask."""
+    if use_overlay and image is not None:
+        return cv2.bitwise_and(image, image, mask=mask)
+    return mask
+
+
 class LineDetectionPipeline:
     """
     A comprehensive line detection pipeline for detecting LED strips.
@@ -383,291 +795,13 @@ class LineDetectionPipeline:
         with open(targets_path, 'r') as f:
             self.targets = json.load(f)
 
-    def apply_brightness_threshold(self, colorspace: str, threshold: int,
-                                   use_adaptive: bool = False, use_clahe: bool = False,
-                                   use_background_norm: bool = False, roi_top_ratio: float = 0.0) -> np.ndarray:
-        """Apply brightness threshold with optional preprocessing enhancements and ROI masking."""
-        if self.original_color is None:
-            raise ValueError("No image loaded. Call set_image() first.")
-        assert self.gray is not None and self.hsv is not None, "Color spaces not initialized."
-            
-        if colorspace == 'gray':
-            channel = self.gray.copy()
-        elif colorspace == 'hsv':
-            channel = self.hsv[:, :, 2].copy()
-        else:
-            raise ValueError(f"Unknown colorspace: {colorspace}")
-
-        # Step 1: Background normalization (remove slow-varying illumination)
-        if use_background_norm:
-            channel_float = channel.astype(np.float32)
-            blur = cv2.GaussianBlur(channel_float, (31, 31), 0)
-            # Subtract background and normalize
-            normalized = channel_float - blur
-            channel = np.zeros_like(normalized, dtype=np.uint8)
-            cv2.normalize(normalized, channel, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-
-        # Step 2: Apply CLAHE for better contrast
-        if use_clahe:
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            channel = clahe.apply(channel)
-
-        # Step 3: Thresholding (adaptive or global)
-        if use_adaptive:
-            mask = cv2.adaptiveThreshold(
-                channel, 255,
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY,
-                31,  # block size
-                -5  # C constant
-            )
-        else:
-            _, mask = cv2.threshold(channel, threshold, 255, cv2.THRESH_BINARY)
-
-        # Step 4: Apply ROI mask (focus on top portion of image for ceiling LEDs)
-        if roi_top_ratio > 0:
-            roi_mask = np.zeros_like(mask)
-            height = mask.shape[0]
-            roi_height = int(height * roi_top_ratio)
-            roi_mask[:roi_height, :] = 255
-            mask = cv2.bitwise_and(mask, roi_mask)
-
-        return mask
-
-    def create_overlay(self, mask: np.ndarray, use_overlay: bool) -> np.ndarray:
-        """Create overlay of mask on original image or return mask."""
-        if use_overlay and self.original_color is not None:
-            return cv2.bitwise_and(self.original_color, self.original_color, mask=mask)
-        return mask
-
-    def detect_edges(self, image: np.ndarray, method: str, **params) -> np.ndarray:
-        """Detect edges using specified method with optional Gaussian blur."""
-        # Optional: Apply Gaussian blur before edge detection to reduce noise
-        blur_kernel = params.get('blur_kernel', 0)
-        if blur_kernel > 0:
-            # Ensure kernel is odd
-            if blur_kernel % 2 == 0:
-                blur_kernel += 1
-            image = cv2.GaussianBlur(image, (blur_kernel, blur_kernel), 0)
-
-        if method == 'canny':
-            # Ensure grayscale for Canny (works on overlay or mask)
-            if image.ndim == 3:
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            if image.dtype != np.uint8:
-                normalized = np.zeros_like(image, dtype=np.uint8)
-                image = cv2.normalize(image, normalized, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-
-            threshold1 = params.get('canny_low', 50)
-            threshold2 = params.get('canny_high', 150)
-            edges = cv2.Canny(image, threshold1, threshold2)
-            # Ensure edges have same spatial dimensions as original
-            if self.original_color is not None:
-                expected_shape = (self.original_color.shape[0], self.original_color.shape[1])
-                assert edges.shape == expected_shape, f"Edge shape mismatch: {edges.shape} vs {expected_shape}"
-            return edges
-        elif method == 'sobel':
-            # Sobel edge detection
-            if len(image.shape) == 3:
-                image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            sobel_x = cv2.Sobel(image, cv2.CV_64F, 1, 0, ksize=3)
-            sobel_y = cv2.Sobel(image, cv2.CV_64F, 0, 1, ksize=3)
-            magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
-            # Guard against div-by-zero
-            max_val = magnitude.max()
-            if max_val > 0:
-                magnitude_normalized = magnitude / max_val * 255
-            else:
-                magnitude_normalized = np.zeros_like(magnitude, dtype=np.uint8)
-            magnitude_uint8 = magnitude_normalized.astype(np.uint8)
-            # Apply threshold to get binary edges
-            _, edges = cv2.threshold(magnitude_uint8, params.get('sobel_threshold', 50), 255, cv2.THRESH_BINARY)
-            return edges
-        else:
-            raise ValueError(f"Unknown edge detection method: {method}")
-
-    def compute_line_quality(self, line: np.ndarray, bright_thr: int = 180) -> float:
-        """
-        Compute a quality score [0,1] for a detected line based on brightness profile.
-
-        High quality lines (LED strips) should be:
-        - Very bright along their length
-        - Consistent brightness (low std)
-        - Brighter than surrounding background
-
-        Args:
-            line: Line coordinates [x1, y1, x2, y2]
-            bright_thr: Threshold for "bright" pixels
-
-        Returns:
-            Quality score in [0, 1] where 1 = perfect LED candidate
-        """
-        x1, y1, x2, y2 = line[0]
-        if self.hsv is None:
-            return 0.0
-        V = self.hsv[:, :, 2]  # Brightness channel
-
-        line_vals, bg_vals = sample_line_brightness(V, x1, y1, x2, y2)
-
-        if line_vals is None:
-            return 0.0
-
-        mean_line = float(line_vals.mean())
-        std_line = float(line_vals.std())
-        bright_ratio = float((line_vals > bright_thr).mean())
-
-        if bg_vals is not None and len(bg_vals) > 0:
-            mean_bg = float(bg_vals.mean())
-            contrast = mean_line - mean_bg
-        else:
-            mean_bg = 0.0
-            contrast = mean_line
-
-        # Normalize each component to [0, 1] with soft thresholds
-        q_bright = np.clip((mean_line - 150) / 80.0, 0.0, 1.0)       # 150-230 range
-        q_ratio = np.clip((bright_ratio - 0.6) / 0.4, 0.0, 1.0)      # 60-100% bright pixels
-        q_contrast = np.clip((contrast - 20) / 80.0, 0.0, 1.0)       # 20-100 contrast
-        q_stable = 1.0 - np.clip((std_line - 10) / 40.0, 0.0, 1.0)   # Low std => stable
-
-        # Weighted combination
-        q = 0.35 * q_bright + 0.25 * q_ratio + 0.25 * q_contrast + 0.15 * q_stable
-        return float(q)
-
-    def compute_lines_quality(self, lines: Optional[np.ndarray]) -> Optional[np.ndarray]:
-        """Compute quality scores for all lines."""
-        if lines is None:
-            return None
-        qualities = []
-        for line in lines:
-            q = self.compute_line_quality(line)
-            qualities.append(q)
-        return np.array(qualities)
-
-    def evaluate_lines(self, lines: Optional[np.ndarray], qualities: Optional[np.ndarray] = None,
-                      q_good: float = 0.6, q_bad: float = 0.3) -> MetricsResult:
-        """
-        Evaluate detected lines with quality-based scoring.
-
-        Args:
-            lines: Detected lines
-            qualities: Quality scores for each line [0,1], or None to compute them
-            q_good: Threshold for "good" LED candidates (>=)
-            q_bad: Threshold for "bad" lines (<=)
-
-        Quality-based classification:
-            - TP: Matched target with quality >= q_good
-            - FP_bad: Unmatched line with quality <= q_bad (strong penalty)
-            - FP_soft: Unmatched line with q_bad < quality < q_good (mild penalty)
-            - FN: Unmatched target
-        """
-        if lines is None or len(lines) == 0:
-            return {
-                'count': 0,
-                'matched_targets': 0,
-                'matched_target_ids': [],
-                'precision': 0,
-                'recall': 0,
-                'f1_score': 0,
-                'score': 0,
-                'matched_line_indices': set(),
-                'qualities': []
-            }
-
-        # Compute qualities if not provided
-        if qualities is None:
-            qualities = self.compute_lines_quality(lines)
-
-        # If no targets provided, fall back to simple counting
-        if not self.targets:
-            return {
-                'count': len(lines),
-                'matched_targets': 0,
-                'matched_target_ids': [],
-                'precision': 0,
-                'recall': 0,
-                'f1_score': 0,
-                'score': len(lines) * 10,
-                'matched_line_indices': set(),
-                'qualities': qualities.tolist() if qualities is not None else []
-            }
-
-        target_lines = self.targets.get('target_lines', [])
-        matched_targets = set()
-        matched_target_ids = []
-        matched_line_indices = set()
-
-        # For each target, find if any detected line matches it
-        # Only count as TP if line quality >= q_good
-        for target in target_lines:
-            target_id = target['id']
-            tolerance = target.get('tolerance', 20)
-
-            for idx, line in enumerate(lines):
-                x1, y1, x2, y2 = line[0]
-                if line_matches_target((x1, y1, x2, y2), target, tolerance):
-                    # Only accept match if quality is good
-                    if qualities is not None and qualities[idx] >= q_good:
-                        matched_targets.add(target_id)
-                        matched_target_ids.append(target_id)
-                        matched_line_indices.add(idx)
-                        break  # Move to next target once matched
-
-        # Classify false positives by quality
-        fp_bad = 0
-        fp_soft = 0
-        for idx in range(len(lines)):
-            if idx not in matched_line_indices:
-                q = qualities[idx] if qualities is not None else 0.5
-                if q <= q_bad:
-                    fp_bad += 1
-                elif q < q_good:
-                    fp_soft += 1
-                # Note: high-quality unmatched lines (q >= q_good) don't count as bad FPs
-
-        num_detected = len(lines)
-        num_targets = len(target_lines)
-        tp = len(matched_targets)  # True positives
-        fn = num_targets - tp      # False negatives
-
-        # Calculate precision and recall with quality weighting
-        # Precision: TP / (TP + FP_bad + FP_soft)
-        total_fp = fp_bad + fp_soft
-        precision = tp / (tp + total_fp) if (tp + total_fp) > 0 else 0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-
-        # F-beta score: beta < 1 gives more weight to precision
-        beta = 0.7
-        if precision + recall > 0:
-            f_beta = (1 + beta**2) * (precision * recall) / (beta**2 * precision + recall)
-        else:
-            f_beta = 0
-
-        # Strong exponential penalty for bad false positives
-        alpha = 0.5  # Penalty strength
-        bad_penalty = np.exp(-alpha * fp_bad)
-
-        # Score: Precision-weighted F-score with exponential bad-FP penalty
-        score = f_beta * bad_penalty * 1000
-
-        return {
-            'count': num_detected,
-            'matched_targets': tp,
-            'matched_target_ids': matched_target_ids,
-            'precision': precision,
-            'recall': recall,
-            'f1_score': f_beta,  # Using F-beta score (precision-weighted)
-            'fp_bad': fp_bad,
-            'fp_soft': fp_soft,
-            'score': score,
-            'matched_line_indices': matched_line_indices,
-            'qualities': qualities.tolist() if qualities is not None else []
-        }
-
     def process_configuration(self, config: PipelineConfig) -> Tuple[MetricsResult, List[Tuple[str, np.ndarray]]]:
         """
         Process a single configuration and return results.
         
-        This is the main method that rover robots should use to run the pipeline.
+        This method reuses detect_led_lines for the core image processing pipeline,
+        then adds target matching evaluation on top of the quality-based evaluation.
+        Generates visualization steps for the first few stages, then delegates to detect_led_lines.
         
         Args:
             config: Configuration dictionary containing all pipeline parameters
@@ -677,123 +811,37 @@ class LineDetectionPipeline:
         """
         if self.original_color is None:
             raise ValueError("No image loaded. Call set_image() first.")
+        assert self.gray is not None and self.hsv is not None, "Color spaces not initialized."
             
+        # Generate key visualization steps for debugging/research purposes
         steps = []
+        
+        # Step 0: Original image
+        steps.append(('0_original', self.original_color))
+        
+        # Step 1: Show the selected channel
+        channel = select_channel(self.gray, self.hsv, config['colorspace'])
+        steps.append(('1_channel', channel))
 
-        # Step 1: Brightness threshold with preprocessing
-        mask = self.apply_brightness_threshold(
-            config['colorspace'],
-            config['brightness_threshold'],
-            use_adaptive=config.get('use_adaptive', False),
-            use_clahe=config.get('use_clahe', False),
-            use_background_norm=config.get('use_background_norm', False),
-            roi_top_ratio=config.get('roi_top_ratio', 0.0)
-        )
-        steps.append(('1_brightness_mask', mask))
-
-        # Step 2: Morphology
-        mask = apply_morphology_operation(
-            mask,
-            config['morph_kernel_size'],
-            config['morph_iterations'],
-            use_closing=config.get('use_closing', False)
-        )
-        steps.append(('2_morphology', mask))
-
-        # Step 3: Overlay (or use mask)
-        processed = self.create_overlay(mask, config['use_overlay'])
-        steps.append(('3_overlay_or_mask', processed))
-
-        # Step 4: Edge detection
-        edges = self.detect_edges(
-            processed,
-            config['edge_method'],
-            canny_low=config.get('canny_low', 50),
-            canny_high=config.get('canny_high', 150),
-            blur_kernel=config.get('blur_kernel', 0),
-            sobel_threshold=config.get('sobel_threshold', 50)
-        )
-        steps.append(('4_edges', edges))
-
-        # Step 5: Line detection
-        lines = detect_lines_in_edges(
-            edges,
-            config['line_method'],
-            hough_threshold=config.get('hough_threshold', 100),
-            min_line_length=config.get('min_line_length', 100),
-            max_line_gap=config.get('max_line_gap', 10)
-        )
-
-        # Step 5.5: Merge collinear lines if enabled
-        if config.get('merge_lines', False):
-            lines = merge_collinear_lines(lines)
-
-        # Step 5.6: Compute line quality scores
-        qualities = self.compute_lines_quality(lines) if lines is not None else None
-
-        # Evaluate with quality scores
-        metrics = self.evaluate_lines(lines, qualities=qualities)
-
-        # Step 6: Draw lines (color-coded by quality and match status)
+        # Use detect_led_lines for the core line detection pipeline (avoiding duplication)
+        brightness_channel = self.hsv[:, :, 2] if self.hsv is not None else None
+        lines, quality_metrics = detect_led_lines(channel, config, self.original_color, brightness_channel)
+        
+        # Extract quality scores from the detect_led_lines result and convert to numpy array
+        qualities_list = quality_metrics.get('qualities')
+        qualities = np.array(qualities_list) if qualities_list is not None else None
+        
+        # Add target matching evaluation (the only thing this method adds over detect_led_lines)
+        target_metrics = evaluate_target_matching(lines, targets=self.targets, qualities=qualities)
+        
+        # Use target metrics as the primary result (includes target matching info)
+        metrics = target_metrics
+        
+        # Final step: Draw lines (color-coded by quality and match status)
         matched_indices = metrics.get('matched_line_indices', set())
         result, _ = draw_lines_on_image(self.original_color, lines, matched_indices, qualities=qualities)
-        steps.append(('5_final_lines', result))
+        steps.append(('2_final_lines', result))
 
         metrics['config'] = config
 
         return metrics, steps
-
-    def detect_led_lines(self, config: PipelineConfig) -> Tuple[Optional[np.ndarray], MetricsResult]:
-        """
-        Simplified interface for rover robots to detect LED lines.
-        
-        Args:
-            config: Configuration dictionary
-            
-        Returns:
-            Tuple of (detected_lines, metrics)
-            detected_lines: numpy array of lines in format [[x1, y1, x2, y2], ...] or None
-            metrics: Dictionary with detection metrics and quality scores
-        """
-        metrics, _ = self.process_configuration(config)
-        
-        # Extract lines from processing steps or reconstruct them
-        mask = self.apply_brightness_threshold(
-            config['colorspace'],
-            config['brightness_threshold'],
-            use_adaptive=config.get('use_adaptive', False),
-            use_clahe=config.get('use_clahe', False),
-            use_background_norm=config.get('use_background_norm', False),
-            roi_top_ratio=config.get('roi_top_ratio', 0.0)
-        )
-        
-        mask = apply_morphology_operation(
-            mask,
-            config['morph_kernel_size'],
-            config['morph_iterations'],
-            use_closing=config.get('use_closing', False)
-        )
-        
-        processed = self.create_overlay(mask, config['use_overlay'])
-        
-        edges = self.detect_edges(
-            processed,
-            config['edge_method'],
-            canny_low=config.get('canny_low', 50),
-            canny_high=config.get('canny_high', 150),
-            blur_kernel=config.get('blur_kernel', 0),
-            sobel_threshold=config.get('sobel_threshold', 50)
-        )
-        
-        lines = detect_lines_in_edges(
-            edges,
-            config['line_method'],
-            hough_threshold=config.get('hough_threshold', 100),
-            min_line_length=config.get('min_line_length', 100),
-            max_line_gap=config.get('max_line_gap', 10)
-        )
-        
-        if config.get('merge_lines', False):
-            lines = merge_collinear_lines(lines)
-            
-        return lines, metrics
