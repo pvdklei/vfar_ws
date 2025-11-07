@@ -1,0 +1,81 @@
+{
+  "description": "Target lines for field.png",
+  "image": "field.png",
+  "image_width": 820,
+  "image_height": 613,
+  "target_lines": [
+    {
+      "id": 1,
+      "name": "Line 1",
+      "approximate_line": {
+        "x1": 787,
+        "y1": 3,
+        "x2": 559,
+        "y2": 193
+      },
+      "tolerance": 20,
+      "description": ""
+    },
+    {
+      "id": 2,
+      "name": "Line 2",
+      "approximate_line": {
+        "x1": 476,
+        "y1": 189,
+        "x2": 558,
+        "y2": 0
+      },
+      "tolerance": 20,
+      "description": ""
+    },
+    {
+      "id": 3,
+      "name": "Line 3",
+      "approximate_line": {
+        "x1": 390,
+        "y1": 192,
+        "x2": 341,
+        "y2": 44
+      },
+      "tolerance": 20,
+      "description": ""
+    },
+    {
+      "id": 4,
+      "name": "Line 4",
+      "approximate_line": {
+        "x1": 184,
+        "y1": 82,
+        "x2": 184,
+        "y2": 82
+      },
+      "tolerance": 20,
+      "description": ""
+    },
+    {
+      "id": 5,
+      "name": "Line 5",
+      "approximate_line": {
+        "x1": 184,
+        "y1": 82,
+        "x2": 306,
+        "y2": 192
+      },
+      "tolerance": 20,
+      "description": ""
+    },
+    {
+      "id": 6,
+      "name": "Line 6",
+      "approximate_line": {
+        "x1": 92,
+        "y1": 3,
+        "x2": 148,
+        "y2": 49
+      },
+      "tolerance": 20,
+      "description": ""
+    }
+  ],
+  "scoring_notes": null
+}

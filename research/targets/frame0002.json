@@ -1,0 +1,57 @@
+{
+  "description": "Target lines for frame0002.jpg",
+  "image": "frame0002.jpg",
+  "image_width": 640,
+  "image_height": 480,
+  "target_lines": [
+    {
+      "id": 1,
+      "name": "Line 1",
+      "approximate_line": {
+        "x1": 120,
+        "y1": 0,
+        "x2": 269,
+        "y2": 163
+      },
+      "tolerance": 20,
+      "description": ""
+    },
+    {
+      "id": 2,
+      "name": "Line 2",
+      "approximate_line": {
+        "x1": 322,
+        "y1": 18,
+        "x2": 340,
+        "y2": 159
+      },
+      "tolerance": 20,
+      "description": ""
+    },
+    {
+      "id": 3,
+      "name": "Line 3",
+      "approximate_line": {
+        "x1": 414,
+        "y1": 159,
+        "x2": 493,
+        "y2": 28
+      },
+      "tolerance": 20,
+      "description": ""
+    },
+    {
+      "id": 4,
+      "name": "Line 4",
+      "approximate_line": {
+        "x1": 479,
+        "y1": 166,
+        "x2": 639,
+        "y2": 38
+      },
+      "tolerance": 20,
+      "description": ""
+    }
+  ],
+  "scoring_notes": null
+}
