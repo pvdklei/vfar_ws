@@ -167,3 +167,6 @@ Thumbs.db
 
 # VSCode settings
 .vscode/
+
+# Assignment 1 Images
+!Assignment 1/output/
