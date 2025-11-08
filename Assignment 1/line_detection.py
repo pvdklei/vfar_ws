@@ -10,12 +10,18 @@ import matplotlib.pyplot as plt
 # (for automatic default path arguments)
 PATH: str = os.getcwd()
 
-def detect_in_frame(frame, bin_t=250, votes=70, min_length=50, max_gap=20):
+def detect_in_frame(frame, bin_t=250, edge="canny", votes=70, min_length=50, max_gap=20):
     image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     _, image = cv2.threshold(image, bin_t, 255, cv2.THRESH_BINARY)
     kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3))
     image = cv2.dilate(image, kernel, iterations=2)
-    image = cv2.Canny(image, 0, 255)
+    if edge == "canny":
+        image = cv2.Canny(image, 0, 255)
+    elif edge == "laplacian":
+        image = cv2.Laplacian(image, cv2.CV_64F)
+        image = cv2.convertScaleAbs(image)
+    else:
+        pass
     lines = cv2.HoughLinesP(image, 1, np.pi/180, votes, minLineLength=min_length, maxLineGap=max_gap)
     return lines
 
@@ -39,7 +45,7 @@ def main(args):
     # Open images & run line detection for each
     for path in paths:
         image = cv2.imread(f"{args.src}/{path}")
-        lines = detect_in_frame(image, args.bin_t, args.votes, args.min_length, args.max_gap)
+        lines = detect_in_frame(image, args.bin_t, args.edge, args.votes, args.min_length, args.max_gap)
         save_frame(path, image, lines, args.dest)
 
 if __name__ == "__main__":
@@ -48,6 +54,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--src", help="Path to input image or folder", default=PATH + "/images")
     parser.add_argument("-d", "--dest", help="Path to output folder", default=PATH + "/output")
     parser.add_argument("-t", "--bin_t", help="Threshold for binarizing the image", default=251)
+    parser.add_argument("-e", "--edge", help="Edge detection method (e.g.: Canny or Laplacian)", default="canny")
     parser.add_argument("-v", "--votes", help="HoughLines parameter of min. nr. votes", default=70)
     parser.add_argument("--min_length", help="HoughLines parameter of min. line length", default=50)
     parser.add_argument("--max_gap", help="HoughLines parameter of max. line gap", default=20)
