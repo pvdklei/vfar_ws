@@ -40,7 +40,7 @@ Finally, Hough Line Transform is applied, using OpenCV's \textit{HoughLinesP} fu
 \textit{HoughLinesP} was used over the standard \textit{HoughLines}, due to its higher computational efficiency and suitability for real-time inference.
 
 \subsection{Performance on five frames}
-Figure \ref{fig:lines_v1} shows five different detection results using this pipeline.
+Figure \ref{fig:lines_v1} shows five different detection results using this pipeline, displaying the original images beside the detected lines by our implementation. The third image column concerns Section 2.4 which compares Canny with a different edge detection algorithm.
 
 \begin{figure}
     \centering
@@ -49,7 +49,7 @@ Figure \ref{fig:lines_v1} shows five different detection results using this pipe
     \includegraphics[scale=0.8]{images/lines_v1_3.png} \\
     \includegraphics[scale=0.8]{images/lines_v1_4.png} \\
     \includegraphics[scale=0.8]{images/lines_v1_5.png} \\
-    \caption{Detected lines using the initial pipeline with canny edge.}
+    \caption{Line detection pipeline results for 5 examples, comparing the plain images with Canny and Laplacian line detectors.}
     \label{fig:lines_v1}
 \end{figure}
 
@@ -65,7 +65,8 @@ The consistency of line tracking over time remains an issue.
 For example, the middle image of Figure \ref{fig:early_frames} clearly detects the ceiling lights, however, in the next frame, the center right ceiling light is no longer detected.
 Another limitation of the pipeline is that each ceiling light is detected as two thin lines, instead of one thick line.
 
-
+\subsection{A more effective line detection algorithm}
+As an alternative to the Canny edge detector, we decided to experiment with a different algorithm, namely the Laplacian edge detector. This method assumes that areas of high intensity changes are associated with edges, therefore it aims to highlight these areas. As its name implies, this method is based on the second order derivative of image intensity, unlike directional gradient methods like Canny or Sobel. In implementation, we simply replaced the Canny edge function with Laplacian from OpenCV, the rest of the pipeline remaining the same. Figure \ref{fig:lines_v1} compares the qualitative results of both Canny and Laplacian.
 
 
 
