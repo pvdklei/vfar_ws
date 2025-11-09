@@ -29,18 +29,21 @@ This report designs, implements, and evaluates a line detection pipeline that id
 
 % image -> grayscale -> binarize by threshold 250 -> dilate once -> canny Edge (I think no matter what threshold values I use it's the same since it's a binary image?) -> houghlines -> display the lines over the original image
 % \\ \\
-\subsection{The line detection pipline}
+\subsection{The line detection pipeline}
 The following steps summarize the implemented line detection pipeline.
 The pipeline starts with obtaining an image from the camera on the rover, obtained by subscribing to the \textit{/image$\_$raw topic}.
 Then, the image is turned to grayscale to simplify processing, followed by binarization to remove background information with a threshold of 251.
 This high threshold is chosen, because the ceiling lights, which the rover has to follow, emit nearly white light.
 The ceiling lights are noisy lines with some gaps, so dilation is then applied to connect them. 
-After pre-processing, Canny edge detection is applied to the image.
+After preprocessing, the Canny edge detection, a gradient-based method that also includes noise reduction, non-maximum suppression and hysteresis thresholding, is applied to the image.
 Finally, Hough Line Transform is applied, using OpenCV's \textit{HoughLinesP} function, to extract lines from the detected edges.
 \textit{HoughLinesP} was used over the standard \textit{HoughLines}, due to its higher computational efficiency and suitability for real-time inference.
 
+The implementation was made in Python using OpenCV functions. Beside the binarizing threshold, there were a few hyperparameters introduced, as required form the HoughLinesP function: a minimum number of votes (70 in our case), the minimum line length (50 for us), and the maximum line gap (20 for us). The code can run equally well for a single image as well as a set of images (representing the frames from a video recording).
+
 \subsection{Performance on five frames}
-Figure \ref{fig:lines_v1} shows five different detection results using this pipeline, displaying the original images beside the detected lines by our implementation. The third image column concerns Section 2.4 which compares Canny with a different edge detection algorithm.
+Figure \ref{fig:lines_v1} shows five different detection results using this pipeline, displaying the original images beside the detected lines by our implementation (second column). Overall, Canny manages to find the ceiling lights without many other irrelevant edges, though it fails to detect the lines curved by the fish-eye lens (i.e.: if the robot is positioned sideways, like in the last row). Another issue is that each ceiling light is delimited by two lines instead of one.
+The third image column concerns Section 2.4 which compares Canny with a different edge detection algorithm.
 
 \begin{figure}
     \centering
@@ -66,11 +69,10 @@ For example, the middle image of Figure \ref{fig:early_frames} clearly detects t
 Another limitation of the pipeline is that each ceiling light is detected as two thin lines, instead of one thick line.
 
 \subsection{A more effective line detection algorithm}
-As an alternative to the Canny edge detector, we decided to experiment with a different algorithm, namely the Laplacian edge detector. This method assumes that areas of high intensity changes are associated with edges, therefore it aims to highlight these areas. As its name implies, this method is based on the second order derivative of image intensity, unlike directional gradient methods like Canny or Sobel. In implementation, we simply replaced the Canny edge function with Laplacian from OpenCV, the rest of the pipeline remaining the same. Figure \ref{fig:lines_v1} compares the qualitative results of both Canny and Laplacian.
+As an alternative to the Canny edge detector, we decided to experiment with a different algorithm, namely the Laplacian edge detector. This method assumes that areas of high intensity changes are associated with edges, therefore it aims to highlight these areas. As its name implies, this method is based on the second order derivative of image intensity, unlike directional gradient methods like Canny or Sobel. In implementation, we simply replaced the Canny edge function with Laplacian from OpenCV, the rest of the pipeline remaining the same. Figure \ref{fig:lines_v1} compares the qualitative results of both Canny and Laplacian. Unlike Canny, the Laplacian operator manages to fit even curved lines (distorted by the fish-eye effect). However, it also detects many irrelevant edges and may be more sensitive to noise (such as the text from posters, window view artifacts, etc. Therefore, each method has its advantages and disadvantages.
 
 
-
-\begin{figure}
+\begin{figure}[hbt!]
     \centering
     \includegraphics[scale=0.5]{images/frame_00004.png}
     \includegraphics[scale=0.5]{images/frame_00302.png}
@@ -82,7 +84,7 @@ As an alternative to the Canny edge detector, we decided to experiment with a di
  
 
 \section{Session 2 line following}
-This session is theoretical and not actually implemented.
+This session is theoretical and not actually implemented due to time constraints and limited robot access.
 
 \subsection{The line following pipeline}
 The following steps summarize the line following pipeline.
@@ -98,13 +100,13 @@ Next, to let the rover drive, the \textit{Twist} module is used.
 Figure \ref{fig:lines_v1} shows rectified images and Figure \ref{fig:early_frames} shows non rectified images with positive radial distortion.
 The improvement in image quality is significant, in the first Figure straight lines are obviously curved, whereas in the second Figure it is difficult to note that the image is still slightly curved.
 
-\subsection{ Solving remaining challenging problem}
-TODO % maybe something about the 2 lines per light, but i dunno how
-\subsection{Using OAK-D camera for this task} % also dunno how
-TODO
+% \subsection{ Solving remaining challenging problem}
+% TODO % maybe something about the 2 lines per light, but i dunno how
+% \subsection{Using OAK-D camera for this task} % also dunno how
+% TODO
 
 \section{Conclusion}
-This report designed and implemented a line detection pipeline for a UGV Rover. Using grayscaling, followed by binarization, dilation, Canny edge detection and Hough Line Transform proved to be an effective method for detecting ceiling lines.
+This report designed and implemented a line detection pipeline for a UGV Rover. Using grayscaling, followed by binarization, dilatation, Canny edge detection and Hough Line Transform proved to be an effective method for detecting ceiling lines.
 
 A line following pipeline was also proposed by filtering the detected lines based on central x and a upper y coordinates, and using Twist to control the rover.
 
